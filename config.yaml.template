@@ -1,0 +1,22 @@
+# Configuration de l'agent de prospection B2B
+# Votre entreprise
+secteur_entreprise: "{{SERVER_SECTEUR_ENTREPRISE}}"
+service_propose: "{{SERVER_SERVICE_PROPOSE}}"
+
+# Zone de prospection
+ville: "{{SERVER_VILLE}}"
+pays: "{{SERVER_PAYS}}"
+
+# Types d'entreprises à cibler (liste des secteurs/activités)
+cibles:
+{{SERVER_CIBLES}}
+
+# Message de vente à personnaliser
+message_base: |
+{{SERVER_MESSAGE_BASE}}
+
+proposition_valeur: "{{SERVER_PROPOSITION_VALEUR}}"
+
+# Paramètres de recherche
+nombre_resultats_serper: {{SERVER_NOMBRE_RESULTATS}}
+

@@ -1,0 +1,29 @@
+# Configuration de l'agent de prospection B2B
+# Votre entreprise
+secteur_entreprise: "Marketing Digital"
+service_propose: "création de sites web et visibilité en ligne"
+
+# Zone de prospection
+ville: "Genève"
+pays: "Suisse"
+
+# Types d'entreprises à cibler (liste des secteurs/activités)
+cibles:
+  - "plombier"
+
+# Message de vente à personnaliser
+message_base: |
+  Bonjour {nom_dirigeant},
+  
+  J'ai remarqué que {nom_entreprise} excelle dans {point_specifique}.
+  
+  Je vous contacte car je peux vous aider à {proposition_valeur}.
+  
+  Seriez-vous intéressé par un échange de 15 minutes cette semaine ?
+  
+  Cordialement
+
+proposition_valeur: "augmenter votre visibilité en ligne et générer plus de leads qualifiés"
+
+# Paramètres de recherche
+nombre_resultats_serper: 10
