@@ -131,7 +131,9 @@ class AgentProspection:
                     ville=self.ville,
                     pays=self.pays,
                     nombre_resultats=min(self.nombre_resultats, 10),  # Limiter à 10 pour éviter trop de requêtes
-                    cibles=self.cibles  # Passer les cibles depuis la config
+                    cibles=self.cibles,  # Passer les cibles depuis la config
+                    service_propose=self.service_propose,  # Passer le service pour qualifier
+                    proposition_valeur=self.proposition_valeur  # Passer la proposition de valeur
                 )
             except Exception as e:
                 logger.warning(f"Erreur lors de la recherche Google Maps: {e}")
@@ -163,7 +165,8 @@ class AgentProspection:
             ville=self.ville,
             pays=self.pays,
             nombre_resultats=self.nombre_resultats,
-            cibles=self.cibles  # Passer les cibles depuis la config
+            cibles=self.cibles,  # Passer les cibles depuis la config
+            proposition_valeur=self.proposition_valeur  # Passer la proposition de valeur
         )
         entreprises.extend(entreprises_serper)
         
@@ -190,6 +193,13 @@ class AgentProspection:
         nom_lower = (nom or "").lower()
         site_lower = (site_web or "").lower()
         texte_complet = f"{nom_lower} {site_lower}"
+        
+        # FILTRE GÉOGRAPHIQUE DYNAMIQUE : Exclure seulement si le pays ne correspond pas
+        if self.pays:
+            pays_resultat = self._detecter_pays_entreprise(nom, site_web)
+            if pays_resultat and not self._pays_correspond(self.pays, pays_resultat):
+                logger.debug(f"❌ Entreprise exclue (pays={pays_resultat} au lieu de {self.pays}): {nom} - {site_web}")
+                return True
         
         # Exclure les sites de grandes chaînes/groupes (accor, booking, etc.)
         domaines_exclus = [
@@ -260,7 +270,108 @@ class AgentProspection:
         
         return False
     
-    def traiter_prospect(self, entreprise: Dict[str, Any]) -> Dict[str, Any]:
+    def _detecter_pays_entreprise(self, nom: str, site_web: str) -> Optional[str]:
+        """
+        Détecte le pays/région d'une entreprise à partir de son nom et site web.
+        
+        Args:
+            nom: Nom de l'entreprise
+            site_web: Site web de l'entreprise
+        
+        Returns:
+            Code pays normalisé (ex: "ch", "fr", "ca", "qc") ou None
+        """
+        texte_complet = f"{nom} {site_web}".lower()
+        
+        # Vérifier le domaine du site web (le plus fiable)
+        if ".qc.ca" in site_web.lower() or ".quebec" in site_web.lower():
+            return "qc"
+        if ".ch" in site_web.lower():
+            return "ch"
+        if ".fr" in site_web.lower() and ".qc.ca" not in site_web.lower():
+            return "fr"
+        if ".ca" in site_web.lower() and ".qc.ca" not in site_web.lower():
+            return "ca"
+        if ".be" in site_web.lower():
+            return "be"
+        if ".lu" in site_web.lower():
+            return "lu"
+        
+        # Vérifier les mots-clés géographiques
+        if "québec" in texte_complet or "quebec" in texte_complet:
+            if "montréal" in texte_complet or "montreal" in texte_complet:
+                return "qc"
+            if "canada" in texte_complet:
+                return "qc"
+        if ("montréal" in texte_complet or "montreal" in texte_complet) and "canada" in texte_complet:
+            return "qc"
+        if "suisse" in texte_complet or "switzerland" in texte_complet:
+            return "ch"
+        if "france" in texte_complet and "quebec" not in texte_complet:
+            return "fr"
+        if "canada" in texte_complet and "québec" not in texte_complet and "quebec" not in texte_complet:
+            return "ca"
+        
+        return None
+    
+    def _normaliser_pays_cible(self, pays: str) -> str:
+        """
+        Normalise le nom du pays ciblé pour comparaison.
+        
+        Args:
+            pays: Nom du pays/région ciblé
+        
+        Returns:
+            Code pays normalisé
+        """
+        pays_lower = pays.lower().strip()
+        
+        if pays_lower in ["suisse", "switzerland", "schweiz", "ch"]:
+            return "ch"
+        if pays_lower in ["france", "fr"]:
+            return "fr"
+        if pays_lower in ["québec", "quebec", "qc", "montréal", "montreal"]:
+            return "qc"
+        if pays_lower in ["canada", "ca"]:
+            return "ca"
+        if pays_lower in ["belgium", "belgique", "belgie", "be"]:
+            return "be"
+        if pays_lower in ["luxembourg", "lu"]:
+            return "lu"
+        
+        return pays_lower
+    
+    def _pays_correspond(self, pays_cible: str, pays_resultat: str) -> bool:
+        """
+        Vérifie si le pays résultat correspond au pays ciblé.
+        
+        Args:
+            pays_cible: Pays/région ciblé
+            pays_resultat: Pays/région détecté dans le résultat
+        
+        Returns:
+            True si le pays correspond, False sinon
+        """
+        cible_normalise = self._normaliser_pays_cible(pays_cible)
+        
+        # Comparaisons intelligentes
+        if cible_normalise == "qc":
+            # Si on cherche Québec, accepter seulement Québec
+            return pays_resultat == "qc"
+        elif cible_normalise == "ca":
+            # Si on cherche Canada, accepter Canada et Québec
+            return pays_resultat in ["ca", "qc"]
+        elif cible_normalise == "ch":
+            # Si on cherche Suisse, accepter seulement Suisse
+            return pays_resultat == "ch"
+        elif cible_normalise == "fr":
+            # Si on cherche France, accepter seulement France
+            return pays_resultat == "fr"
+        else:
+            # Comparaison stricte pour les autres pays
+            return pays_resultat == cible_normalise
+    
+    def traiter_prospect(self, entreprise: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Traite un prospect complet: enrichissement + analyse IA + sauvegarde.
         
@@ -419,7 +530,9 @@ class AgentProspection:
             resultat_ia = self.openai_client.generer_message_personnalise(
                 prospect_complet,
                 self.message_base,
-                self.proposition_valeur
+                self.proposition_valeur,
+                service_propose=self.service_propose,
+                secteur_entreprise=self.secteur_entreprise
             )
             prospect_complet["message_personnalise"] = resultat_ia.get("message_personnalise", "")
             prospect_complet["point_specifique"] = resultat_ia.get("point_specifique", "")
@@ -437,7 +550,15 @@ class AgentProspection:
             )
             prospect_complet["point_specifique"] = "expertise dans votre domaine"
         
-        # 5. Sauvegarde en base de données
+        # 5. Validation : s'assurer qu'il y a au moins email OU téléphone
+        email = prospect_complet.get("email")
+        telephone = prospect_complet.get("telephone")
+        
+        if not email and not telephone:
+            logger.warning(f"❌ Prospect {prospect_complet['nom_entreprise']} ignoré : aucun email ni téléphone trouvé")
+            return None
+        
+        # 6. Sauvegarde en base de données
         prospect_id = self.db.ajouter_prospect(prospect_complet)
         
         if prospect_id:
@@ -521,6 +642,11 @@ class AgentProspection:
                 
                 # Traiter le prospect
                 prospect_traite = self.traiter_prospect(entreprise)
+                
+                # Si le prospect n'a pas pu être traité (pas d'email ni téléphone), passer au suivant
+                if prospect_traite is None:
+                    logger.info("⏭️  Prospect ignoré (pas de contact). Passage au suivant...")
+                    continue
                 
                 # Afficher le résumé
                 self.afficher_resume(prospect_traite)
