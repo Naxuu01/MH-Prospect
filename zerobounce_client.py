@@ -55,7 +55,19 @@ class ZeroBounceClient:
             
             status = data.get("status", "unknown")
             
-            logger.info(f"Email {email} vérifié: {status} (crédits restants: {data.get('credits_remaining', 'N/A')})")
+            # Convertir les crédits en entiers
+            credits_remaining = data.get("credits_remaining", 0)
+            credits_used = data.get("credits_used", 0)
+            try:
+                credits_remaining = int(credits_remaining) if credits_remaining else 0
+            except (ValueError, TypeError):
+                credits_remaining = 0
+            try:
+                credits_used = int(credits_used) if credits_used else 0
+            except (ValueError, TypeError):
+                credits_used = 0
+            
+            logger.info(f"Email {email} vérifié: {status} (crédits restants: {credits_remaining})")
             
             return {
                 "status": status,
@@ -64,8 +76,8 @@ class ZeroBounceClient:
                 "domain": data.get("domain", ""),
                 "did_you_mean": data.get("did_you_mean"),
                 "result": data.get("result", "unknown"),
-                "credits_remaining": data.get("credits_remaining", 0),
-                "credits_used": data.get("credits_used", 0)
+                "credits_remaining": credits_remaining,
+                "credits_used": credits_used
             }
             
         except requests.exceptions.RequestException as e:
@@ -120,6 +132,11 @@ class ZeroBounceClient:
             data = response.json()
             
             credits = data.get("Credits", 0)
+            # Convertir en entier si c'est une chaîne
+            try:
+                credits = int(credits) if credits else 0
+            except (ValueError, TypeError):
+                credits = 0
             logger.info(f"Crédits ZeroBounce restants: {credits}")
             return credits
             
