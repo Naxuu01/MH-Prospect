@@ -78,6 +78,11 @@ class AgentProspection:
             self.zerobounce = ZeroBounceClient(zerobounce_key)
             # Vérifier les crédits disponibles
             credits = self.zerobounce.obtenir_credits()
+            # Conversion sécurisée en entier (double sécurité)
+            try:
+                credits = int(credits) if credits else 0
+            except (ValueError, TypeError):
+                credits = 0
             if credits > 0:
                 logger.info(f"✅ ZeroBounce activé ({credits} crédits restants)")
             else:
@@ -351,6 +356,11 @@ class AgentProspection:
                 
                 status = verification.get("status", "unknown")
                 credits_remaining = verification.get("credits_remaining", 0)
+                # Convertir en entier si c'est une chaîne
+                try:
+                    credits_remaining = int(credits_remaining) if credits_remaining else 0
+                except (ValueError, TypeError):
+                    credits_remaining = 0
                 
                 if status == "valid":
                     logger.info(f"✅ Email valide: {email_trouve} ({credits_remaining} crédits restants)")
