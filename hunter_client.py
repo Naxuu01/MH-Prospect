@@ -41,6 +41,7 @@ class HunterClient:
             logger.info(f"Scraping du site web pour trouver le dirigeant: {site_web}")
             dirigeant_scrape, email_scrape = self._scraper_dirigeant_site_web(site_web)
             
+            
             if dirigeant_scrape and email_scrape:
                 logger.info(f"Dirigeant trouvé via scraping: {dirigeant_scrape['nom']} ({dirigeant_scrape['poste']})")
                 return email_scrape, dirigeant_scrape

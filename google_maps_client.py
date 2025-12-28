@@ -391,9 +391,19 @@ class GoogleMapsClient:
             if region_code:
                 params["region"] = region_code
             
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            try:
+                response = requests.get(url, params=params, timeout=(10, 30))
+                response.raise_for_status()
+                data = response.json()
+            except requests.exceptions.Timeout:
+                logger.debug(f"⏱️  Timeout recherche textuelle Google Maps")
+                return None
+            except requests.exceptions.ConnectionError:
+                logger.debug(f"🔌 Erreur de connexion recherche textuelle Google Maps")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"❌ Erreur requête recherche textuelle Google Maps: {e}")
+                return None
             
             if data.get("status") == "OK" and data.get("results"):
                 # Prendre le premier résultat
@@ -401,9 +411,6 @@ class GoogleMapsClient:
             
             return None
             
-        except requests.exceptions.RequestException as e:
-            logger.debug(f"Erreur recherche textuelle Google Maps: {e}")
-            return None
         except Exception as e:
             logger.debug(f"Erreur inattendue recherche textuelle: {e}")
             return None
@@ -427,18 +434,25 @@ class GoogleMapsClient:
                 "fields": "name,formatted_address,formatted_phone_number,international_phone_number,website,rating,user_ratings_total,opening_hours,types,geometry,url"
             }
             
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            try:
+                response = requests.get(url, params=params, timeout=(10, 30))
+                response.raise_for_status()
+                data = response.json()
+            except requests.exceptions.Timeout:
+                logger.debug(f"⏱️  Timeout détails Google Maps")
+                return None
+            except requests.exceptions.ConnectionError:
+                logger.debug(f"🔌 Erreur de connexion détails Google Maps")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"❌ Erreur requête détails Google Maps: {e}")
+                return None
             
             if data.get("status") == "OK" and data.get("result"):
                 return data["result"]
             
             return None
             
-        except requests.exceptions.RequestException as e:
-            logger.debug(f"Erreur détails Google Maps: {e}")
-            return None
         except Exception as e:
             logger.debug(f"Erreur inattendue détails: {e}")
             return None
@@ -495,9 +509,19 @@ class GoogleMapsClient:
             if region_code:
                 params["region"] = region_code
             
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            try:
+                response = requests.get(url, params=params, timeout=(10, 30))
+                response.raise_for_status()
+                data = response.json()
+            except requests.exceptions.Timeout:
+                logger.debug(f"⏱️  Timeout recherche textuelle multiple Google Maps")
+                return []
+            except requests.exceptions.ConnectionError:
+                logger.debug(f"🔌 Erreur de connexion recherche textuelle multiple Google Maps")
+                return []
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"❌ Erreur requête recherche textuelle multiple Google Maps: {e}")
+                return []
             
             place_ids = []
             if data.get("status") == "OK" and data.get("results"):

@@ -17,6 +17,8 @@ from openai_client import OpenAIClient
 from apollo_client import ApolloClient
 from google_maps_client import GoogleMapsClient
 from zerobounce_client import ZeroBounceClient
+from scoring import ProspectScoring
+from tech_detector import TechnologyDetector
 
 # Configuration du logging
 logging.basicConfig(
@@ -98,14 +100,22 @@ class AgentProspection:
         self.file_attente = Queue()
         
         # Configuration
-        self.intervalle_traitement = 10  # 2 minutes (120 secondes)
+        self.intervalle_traitement = 2  # 2 secondes entre chaque traitement
         self.secteur_entreprise = self.config.get("secteur_entreprise", "Marketing Digital")
         self.service_propose = self.config.get("service_propose", "services digitaux")
         self.ville = self.config.get("ville", "Genève")
         self.pays = self.config.get("pays", "Suisse")
         self.message_base = self.config.get("message_base", "")
+        # Templates multiples
+        self.message_commerce = self.config.get("message_commerce", self.message_base)
+        self.message_b2b = self.config.get("message_b2b", self.message_base)
+        self.message_artisan = self.config.get("message_artisan", self.message_base)
         self.proposition_valeur = self.config.get("proposition_valeur", "")
         self.nombre_resultats = self.config.get("nombre_resultats_serper", 10)
+        
+        # Initialiser le scoring et la détection de technologies
+        self.scoring = ProspectScoring(service_propose=self.service_propose)
+        self.tech_detector = TechnologyDetector()
         
         # Charger les cibles depuis la config (types d'entreprises à cibler)
         self.cibles = self.config.get("cibles", [
@@ -116,6 +126,8 @@ class AgentProspection:
     
     def charger_prospects_initiaux(self):
         """Charge une liste initiale de prospects qualifiés (PME privées locales)."""
+        from display_utils import print_section, print_info, Colors
+        print_section("Recherche de prospects", width=100, icon="🔍", color=Colors.CYAN)
         logger.info(f"🎯 Recherche de prospects qualifiés (PME privées locales)")
         logger.info(f"   Service proposé: {self.service_propose}")
         logger.info(f"   Secteur: {self.secteur_entreprise}")
@@ -125,6 +137,8 @@ class AgentProspection:
         
         # Méthode 1: Google Maps Places (prioritaire - trouve de vrais commerces locaux)
         if self.google_maps:
+            from display_utils import print_info, Colors
+            print_info("📍 Source", "Google Maps Places (commerces locaux)", width=100, value_color=Colors.GREEN)
             logger.info("📍 Recherche via Google Maps Places (commerces locaux)...")
             try:
                 commerces_gmaps = self.google_maps.rechercher_commerces_locaux(
@@ -158,6 +172,8 @@ class AgentProspection:
                 })
         
         # Méthode 2: Serper (complémentaire)
+        from display_utils import print_info, Colors
+        print_info("🔍 Source", "Serper.dev (recherche web complémentaire)", width=100, value_color=Colors.CYAN)
         logger.info("🔍 Recherche complémentaire via Serper...")
         entreprises_serper = self.serper.rechercher_entreprises_qualifiees(
             service_propose=self.service_propose,
@@ -186,6 +202,12 @@ class AgentProspection:
                 self.file_attente.put(entreprise)
         
         logger.info(f"✅ {len(nouvelles_entreprises)} nouvelles PME privées ajoutées à la file d'attente")
+        
+        # Ne pas afficher de message si aucun nouveau prospect (pour éviter le spam)
+        if len(nouvelles_entreprises) > 0:
+            from display_utils import print_success
+            print_success(f"{len(nouvelles_entreprises)} nouveaux prospects trouvés et ajoutés à la file d'attente !")
+        
         return len(nouvelles_entreprises)
     
     def _est_entreprise_non_pertinente(self, nom: str, site_web: str) -> bool:
@@ -461,11 +483,12 @@ class AgentProspection:
                 logger.info(f"Vérification ZeroBounce pour {email_trouve}")
                 verification = self.zerobounce.verifier_email(email_trouve)
                 
-                prospect_complet["email_status"] = verification.get("status", "unknown")
-                prospect_complet["email_sub_status"] = verification.get("sub_status", "")
+                # S'assurer que le statut n'est jamais None
+                status = verification.get("status") or "unknown"
+                prospect_complet["email_status"] = status
+                prospect_complet["email_sub_status"] = verification.get("sub_status") or ""
                 prospect_complet["email_did_you_mean"] = verification.get("did_you_mean")
                 
-                status = verification.get("status", "unknown")
                 credits_remaining = verification.get("credits_remaining", 0)
                 # Convertir en entier si c'est une chaîne
                 try:
@@ -481,12 +504,17 @@ class AgentProspection:
                         logger.info(f"💡 Suggestion: {verification['did_you_mean']}")
                 elif status == "catch-all":
                     logger.info(f"⚠️ Email catch-all (valide mais moins fiable): {email_trouve}")
+                elif status != "unknown":
+                    logger.warning(f"⚠️ Statut email: {status} pour {email_trouve}")
                 else:
-                    logger.warning(f"⚠️ Statut email incertain ({status}): {email_trouve}")
+                    logger.debug(f"Statut email inconnu pour {email_trouve}")
                     
             except Exception as e:
                 logger.warning(f"Erreur lors de la vérification ZeroBounce: {e}")
                 prospect_complet["email_status"] = "unknown"
+        elif email_trouve:
+            # Email trouvé mais ZeroBounce non configuré
+            prospect_complet["email_status"] = None  # Sera affiché comme "Non vérifié"
         
         # Plus de recherche de dirigeant - supprimé
         
@@ -499,7 +527,20 @@ class AgentProspection:
             if donnees_entreprise.get("revenue"):
                 prospect_complet["revenue_estime"] = donnees_entreprise["revenue"]
         
-        # 2. Recherche LinkedIn via Serper (seulement si pas déjà trouvé par Apollo)
+        # 2. Détection des technologies web utilisées
+        site_web = prospect_complet.get("site_web", "")
+        if site_web:
+            try:
+                logger.info(f"Détection des technologies pour {site_web}")
+                technologies = self.tech_detector.detecter(site_web)
+                prospect_complet["technologies"] = ",".join(technologies) if technologies else ""
+                if technologies:
+                    logger.info(f"✅ Technologies détectées: {', '.join(technologies)}")
+            except Exception as e:
+                logger.debug(f"Erreur lors de la détection de technologies: {e}")
+                prospect_complet["technologies"] = ""
+        
+        # 3. Recherche LinkedIn via Serper (seulement si pas déjà trouvé par Apollo)
         if not prospect_complet.get("linkedin_entreprise") and prospect_complet["nom_entreprise"]:
             linkedin_entreprise = self.serper.rechercher_linkedin(
                 prospect_complet["nom_entreprise"],
@@ -509,7 +550,17 @@ class AgentProspection:
             if linkedin_entreprise:
                 prospect_complet["linkedin_entreprise"] = linkedin_entreprise
         
-        # 3. Analyse de pertinence avec OpenAI (pourquoi cette entreprise et ce qu'on peut leur proposer)
+        # 4. Calcul du score du prospect
+        try:
+            score = self.scoring.calculer_score(prospect_complet)
+            prospect_complet["score"] = score
+            categorie = self.scoring.obtenir_categorie_score(score)
+            logger.info(f"📊 Score prospect: {score}/100 ({categorie})")
+        except Exception as e:
+            logger.warning(f"Erreur lors du calcul du score: {e}")
+            prospect_complet["score"] = 0
+        
+        # 5. Analyse de pertinence avec OpenAI (pourquoi cette entreprise et ce qu'on peut leur proposer)
         try:
             analyse_pertinence = self.openai_client.analyser_entreprise_pertinence(
                 prospect_complet,
@@ -524,12 +575,16 @@ class AgentProspection:
             prospect_complet["raison_choix"] = f"PME locale qui pourrait bénéficier de {self.service_propose}"
             prospect_complet["proposition_service"] = f"Amélioration de leur présence digitale avec {self.service_propose}"
         
-        # 4. Génération du message personnalisé avec OpenAI
+        # 6. Sélection du template de message selon le type d'entreprise
+        template_a_utiliser = self._selectionner_template_message(prospect_complet)
+        prospect_complet["template_utilise"] = template_a_utiliser
+        
+        # 7. Génération du message personnalisé avec OpenAI
         # On génère toujours un message, même sans dirigeant (utilise "Monsieur/Madame" par défaut)
         try:
             resultat_ia = self.openai_client.generer_message_personnalise(
                 prospect_complet,
-                self.message_base,
+                template_a_utiliser,
                 self.proposition_valeur,
                 service_propose=self.service_propose,
                 secteur_entreprise=self.secteur_entreprise
@@ -539,7 +594,7 @@ class AgentProspection:
         except Exception as e:
             logger.warning(f"Erreur lors de la génération du message pour {prospect_complet['nom_entreprise']}: {e}")
             # Message par défaut sans IA
-            prospect_complet["message_personnalise"] = self.message_base.replace(
+            prospect_complet["message_personnalise"] = template_a_utiliser.replace(
                 "{nom_dirigeant}", "Monsieur/Madame"
             ).replace(
                 "{nom_entreprise}", prospect_complet["nom_entreprise"]
@@ -568,43 +623,184 @@ class AgentProspection:
         
         return prospect_complet
     
+    def _selectionner_template_message(self, prospect: Dict[str, Any]) -> str:
+        """
+        Sélectionne le template de message approprié selon le type d'entreprise.
+        
+        Args:
+            prospect: Dictionnaire contenant les données du prospect
+        
+        Returns:
+            Template de message à utiliser
+        """
+        nom = prospect.get("nom_entreprise", "").lower()
+        industrie = prospect.get("industrie", "").lower()
+        description = prospect.get("description", "").lower()
+        technologies = prospect.get("technologies", "").lower()
+        
+        # Détecter le type d'entreprise
+        commerce_keywords = ["restaurant", "boutique", "commerce", "retail", "magasin", "épicerie", "boulangerie", "coiffeur", "salon"]
+        artisan_keywords = ["plombier", "électricien", "maçon", "menuisier", "charpentier", "peintre", "chauffagiste", "artisan"]
+        b2b_keywords = ["cabinet", "fiduciaire", "consultant", "conseil", "avocat", "comptable", "agence", "bureau", "société"]
+        
+        # Vérifier dans différents champs
+        texte_complet = f"{nom} {industrie} {description}".lower()
+        
+        if any(mot in texte_complet for mot in artisan_keywords):
+            logger.debug(f"Template artisan sélectionné pour {prospect.get('nom_entreprise')}")
+            return self.message_artisan
+        elif any(mot in texte_complet for mot in commerce_keywords):
+            logger.debug(f"Template commerce sélectionné pour {prospect.get('nom_entreprise')}")
+            return self.message_commerce
+        elif any(mot in texte_complet for mot in b2b_keywords):
+            logger.debug(f"Template B2B sélectionné pour {prospect.get('nom_entreprise')}")
+            return self.message_b2b
+        else:
+            # Template par défaut
+            logger.debug(f"Template base sélectionné pour {prospect.get('nom_entreprise')}")
+            return self.message_base
+    
     def afficher_resume(self, prospect: Dict[str, Any]):
         """
-        Affiche un résumé complet du prospect traité dans la console.
+        Affiche un résumé complet du prospect traité dans la console avec un rendu visuel amélioré.
         
         Args:
             prospect: Dictionnaire contenant les données du prospect
         """
-        print("\n" + "="*80)
-        print(f"📊 PROSPECT TRAITÉ - {prospect['nom_entreprise']}")
-        print("="*80)
-        print(f"🌐 Site web: {prospect.get('site_web', 'N/A')}")
-        print(f"📞 Téléphone: {prospect.get('telephone', 'N/A')}")
-        email = prospect.get('email', 'N/A')
+        from display_utils import (
+            print_header, print_section, print_info, print_box, 
+            print_separator, wrap_text, Colors, print_success, print_warning
+        )
+        
+        nom_entreprise = prospect.get('nom_entreprise', 'N/A')
+        score = prospect.get('score', 0)
+        
+        # Afficher le score dans l'en-tête
+        from scoring import ProspectScoring
+        scoring_temp = ProspectScoring(self.service_propose)
+        categorie = scoring_temp.obtenir_categorie_score(score)
+        
+        # En-tête principal simplifié avec score
+        print_header(f"📊 {nom_entreprise} - Score: {score}/100 ({categorie})", width=100, color=Colors.CYAN)
+        
+        # Section Informations de Contact
+        print_section("Contact", width=100, icon="📞", color=Colors.BLUE)
+        
+        # Afficher le score en premier
+        if score > 0:
+            score_color = Colors.GREEN if score >= 60 else Colors.YELLOW if score >= 40 else Colors.RED
+            print_info("⭐ Score", f"{score}/100 ({categorie.capitalize()})", width=100, value_color=score_color)
+        
+        # Site web
+        site_web = prospect.get('site_web') or 'N/A'
+        if site_web and site_web != 'N/A':
+            print_info("🌐 Site web", site_web, width=100)
+        else:
+            print_info("🌐 Site web", "Non disponible", width=100, value_color=Colors.DIM)
+        
+        # Téléphone
+        telephone = prospect.get('telephone') or 'N/A'
+        if telephone and telephone != 'N/A':
+            print_info("📞 Téléphone", telephone, width=100, value_color=Colors.GREEN)
+        else:
+            print_info("📞 Téléphone", "Non disponible", width=100, value_color=Colors.DIM)
+        
+        # Email avec statut
+        email = prospect.get('email') or 'N/A'
         email_status = prospect.get('email_status')
-        if email_status:
-            status_icon = "✅" if email_status == "valid" else "❌" if email_status == "invalid" else "⚠️"
-            print(f"✉️  Email: {email} {status_icon} ({email_status})")
+        if email and email != 'N/A':
+            # Gérer le cas où email_status est None ou vide
+            if email_status == "valid":
+                status_display = f"✅ Valide"
+                value_color = Colors.GREEN
+            elif email_status == "invalid":
+                status_display = f"❌ Invalide"
+                value_color = Colors.RED
+            elif email_status == "catch-all":
+                status_display = f"⚠️  Catch-all (moins fiable)"
+                value_color = Colors.YELLOW
+            elif email_status and email_status != "unknown":
+                # Statut valide mais non standard
+                status_display = f"⚠️  Statut: {email_status}"
+                value_color = Colors.YELLOW
+            else:
+                # Pas de vérification effectuée ou statut inconnu
+                status_display = "⏳ Non vérifié"
+                value_color = Colors.DIM
+            
+            print_info("✉️  Email", f"{email} - {status_display}", width=100, value_color=value_color)
+            
             if prospect.get('email_did_you_mean'):
-                print(f"   💡 Suggestion: {prospect.get('email_did_you_mean')}")
+                print_info("💡 Suggestion", prospect.get('email_did_you_mean'), width=100, value_color=Colors.CYAN)
         else:
-            print(f"✉️  Email: {email}")
-        print(f"🔗 LinkedIn Entreprise: {prospect.get('linkedin_entreprise', 'N/A')}")
-        print(f"\n🎯 POURQUOI CETTE ENTREPRISE:")
-        print(f"   {prospect.get('raison_choix', 'N/A')}")
-        print(f"\n💡 PROPOSITION DE SERVICE:")
-        print(f"   {prospect.get('proposition_service', 'N/A')}")
-        print(f"\n💡 Point spécifique identifié: {prospect.get('point_specifique', 'N/A')}")
-        print(f"\n📝 Message personnalisé:\n{'-'*80}")
-        if prospect.get('message_personnalise'):
-            print(prospect['message_personnalise'])
+            print_info("✉️  Email", "Non disponible", width=100, value_color=Colors.DIM)
+        
+        # LinkedIn
+        linkedin = prospect.get('linkedin_entreprise') or 'N/A'
+        if linkedin and linkedin != 'N/A':
+            print_info("🔗 LinkedIn Entreprise", linkedin, width=100)
         else:
-            print("Message non généré (données insuffisantes)")
-        print("-"*80)
-        print("="*80 + "\n")
+            print_info("🔗 LinkedIn Entreprise", "Non disponible", width=100, value_color=Colors.DIM)
+        
+        # Informations supplémentaires
+        taille = prospect.get('taille_entreprise')
+        industrie = prospect.get('industrie')
+        if taille or industrie:
+            print_separator(width=100)
+            if taille:
+                print_info("🏢 Taille", taille, width=100)
+            if industrie:
+                print_info("📋 Industrie", industrie, width=100)
+        
+        # Section Analyse simplifiée
+        raison_choix = prospect.get('raison_choix', 'N/A')
+        if raison_choix != 'N/A':
+            print_section("Pourquoi cette entreprise", width=100, icon="🎯", color=Colors.MAGENTA)
+            print_box(raison_choix, width=100, border_color=Colors.MAGENTA)
+        
+        # Section Proposition de Service
+        proposition_service = prospect.get('proposition_service', 'N/A')
+        if proposition_service != 'N/A':
+            print_section("Proposition de service", width=100, icon="💡", color=Colors.YELLOW)
+            print_box(proposition_service, width=100, border_color=Colors.YELLOW)
+        
+        # Technologies détectées
+        technologies = prospect.get('technologies', '')
+        if technologies:
+            techs_list = technologies.split(',')
+            print_info("🔧 Technologies", ', '.join(techs_list[:5]), width=100, value_color=Colors.CYAN)
+        
+        # Point spécifique
+        point_specifique = prospect.get('point_specifique', 'N/A')
+        if point_specifique != 'N/A':
+            print_info("Point spécifique", point_specifique, width=100, value_color=Colors.CYAN)
+        
+        # Section Message Personnalisé
+        print_section("Message personnalisé", width=100, icon="📝", color=Colors.GREEN)
+        
+        message = prospect.get('message_personnalise')
+        if message:
+            # Formater le message avec indentation
+            lines = wrap_text(message, width=96, indent=2)
+            print_box('\n'.join(lines), title="Message prêt à envoyer", width=100,
+                     border_color=Colors.GREEN, title_color=Colors.GREEN + Colors.BOLD)
+        else:
+            print_warning("Message non généré (données insuffisantes)")
+        
+        # Footer simplifié
+        print()
     
     def lancer(self):
         """Lance la boucle principale de l'agent."""
+        from display_utils import print_header, print_info, print_separator, Colors, print_success
+        
+        # En-tête de démarrage visuel simplifié
+        print_header("🚀 Agent de Prospection B2B", width=100, color=Colors.CYAN)
+        print_info("Service", self.service_propose, width=100, value_color=Colors.GREEN)
+        print_info("Zone", f"{self.ville}, {self.pays}", width=100)
+        print_info("Intervalle", f"{self.intervalle_traitement}s", width=100)
+        print()
+        
         logger.info("🚀 Démarrage de l'agent de prospection B2B")
         logger.info(f"⏱️  Intervalle de traitement: {self.intervalle_traitement} secondes ({self.intervalle_traitement//60} minutes)")
         logger.info(f"🎯 Service proposé: {self.service_propose}")
@@ -619,25 +815,35 @@ class AgentProspection:
         
         # Afficher les statistiques initiales
         stats = self.db.obtenir_statistiques()
-        logger.info(f"📈 Statistiques initiales - Total: {stats['total']} | Avec email: {stats['avec_email']}")
+        from display_utils import print_success
+        print_success(f"Statistiques initiales - Total: {stats['total']} prospects | Avec email: {stats['avec_email']}")
         
         # Boucle principale
         compteur = 0
+        tentatives_echouees = 0
         while True:
             try:
                 if self.file_attente.empty():
-                    logger.info("📭 File d'attente vide. Chargement de nouveaux prospects...")
+                    logger.debug("📭 File d'attente vide. Chargement de nouveaux prospects...")
                     nouveaux = self.charger_prospects_initiaux()
                     
                     if nouveaux == 0:
-                        logger.warning("⚠️  Aucun nouveau prospect trouvé. Attente de 5 minutes avant nouvelle tentative...")
+                        tentatives_echouees += 1
+                        # Afficher un message seulement toutes les 5 tentatives pour éviter le spam
+                        if tentatives_echouees % 5 == 1:
+                            logger.debug(f"⏳ Aucun nouveau prospect trouvé (tentative {tentatives_echouees}). Recherche en cours...")
                         time.sleep(60)  # Attendre 1 minute
                         continue
+                    else:
+                        # Réinitialiser le compteur si on trouve des prospects
+                        tentatives_echouees = 0
                 
                 # Récupérer le prochain prospect
                 entreprise = self.file_attente.get()
                 compteur += 1
                 
+                from display_utils import print_section, Colors
+                print_section(f"Prospect #{compteur}", width=100, icon="🔄", color=Colors.BLUE)
                 logger.info(f"\n🔄 Traitement du prospect #{compteur}")
                 
                 # Traiter le prospect
@@ -645,6 +851,8 @@ class AgentProspection:
                 
                 # Si le prospect n'a pas pu être traité (pas d'email ni téléphone), passer au suivant
                 if prospect_traite is None:
+                    from display_utils import print_warning
+                    print_warning(f"Prospect #{compteur} ignoré (pas de contact valide). Passage au suivant...")
                     logger.info("⏭️  Prospect ignoré (pas de contact). Passage au suivant...")
                     continue
                 
@@ -653,9 +861,13 @@ class AgentProspection:
                 
                 # Afficher les statistiques mises à jour
                 stats = self.db.obtenir_statistiques()
+                from display_utils import print_success
+                print_success(f"Statistiques mises à jour - Total: {stats['total']} | Avec email: {stats['avec_email']} | Traités: {stats['traites']}")
                 logger.info(f"📊 Statistiques - Total: {stats['total']} | Avec email: {stats['avec_email']} | Traités: {stats['traites']}")
                 
                 # Attendre avant de traiter le suivant
+                from display_utils import print_separator
+                print_separator(width=100, style="─", color=Colors.DIM + Colors.WHITE)
                 logger.info(f"⏳ Attente de {self.intervalle_traitement} secondes avant le prochain traitement...")
                 time.sleep(self.intervalle_traitement)
                 

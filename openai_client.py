@@ -2,11 +2,18 @@
 Module client pour OpenAI - Génération de messages personnalisés.
 """
 import json
+import os
 import openai
 import logging
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# Désactiver les proxies pour OpenAI (certaines configs système causent des erreurs)
+os.environ.pop('HTTP_PROXY', None)
+os.environ.pop('HTTPS_PROXY', None)
+os.environ.pop('http_proxy', None)
+os.environ.pop('https_proxy', None)
 
 
 class OpenAIClient:
@@ -87,10 +94,15 @@ Réponds UNIQUEMENT avec un JSON au format suivant (sans markdown, sans code blo
 {{
     "point_specifique": "le point identifié ici",
     "message_personnalise": "le message complet ici"
-}}
+            }}
 """
             
-            client = openai.OpenAI(api_key=self.api_key)
+            # Créer le client OpenAI sans proxies
+            client = openai.OpenAI(
+                api_key=self.api_key,
+                # S'assurer qu'aucun proxy n'est utilisé
+                http_client=None
+            )
             
             response = client.chat.completions.create(
                 model=self.model,
@@ -434,7 +446,12 @@ Réponds UNIQUEMENT avec un JSON valide (sans markdown, sans code block):
 }}
 """
             
-            client = openai.OpenAI(api_key=self.api_key)
+            # Créer le client OpenAI sans proxies
+            client = openai.OpenAI(
+                api_key=self.api_key,
+                # S'assurer qu'aucun proxy n'est utilisé
+                http_client=None
+            )
             
             response = client.chat.completions.create(
                 model=self.model,

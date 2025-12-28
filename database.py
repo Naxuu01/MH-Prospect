@@ -76,6 +76,21 @@ class ProspectDatabase:
             except sqlite3.OperationalError:
                 pass  # La colonne existe déjà
             
+            try:
+                cursor.execute("ALTER TABLE prospects ADD COLUMN score INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass  # La colonne existe déjà
+            
+            try:
+                cursor.execute("ALTER TABLE prospects ADD COLUMN technologies TEXT")
+            except sqlite3.OperationalError:
+                pass  # La colonne existe déjà
+            
+            try:
+                cursor.execute("ALTER TABLE prospects ADD COLUMN template_utilise TEXT")
+            except sqlite3.OperationalError:
+                pass  # La colonne existe déjà
+            
             conn.commit()
             conn.close()
             logger.info("Base de données initialisée avec succès")
@@ -103,8 +118,9 @@ class ProspectDatabase:
                  poste_dirigeant, linkedin_entreprise, linkedin_dirigeant, 
                  message_personnalise, point_specifique, raison_choix, proposition_service,
                  email_status, email_sub_status, email_did_you_mean,
+                 score, technologies, template_utilise,
                  date_traitement, statut)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 prospect_data.get('nom_entreprise'),
                 prospect_data.get('site_web'),
@@ -121,6 +137,9 @@ class ProspectDatabase:
                 prospect_data.get('email_status'),
                 prospect_data.get('email_sub_status'),
                 prospect_data.get('email_did_you_mean'),
+                prospect_data.get('score', 0),
+                prospect_data.get('technologies'),
+                prospect_data.get('template_utilise'),
                 datetime.now().isoformat(),
                 'traite'
             ))

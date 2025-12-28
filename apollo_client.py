@@ -105,14 +105,28 @@ class ApolloClient:
             if ville:
                 query_params["q_organization_locations"] = ville
             
-            response = requests.post(url, json=query_params, headers=self.headers, timeout=30)
+            try:
+                response = requests.post(url, json=query_params, headers=self.headers, timeout=(10, 30))
+            except requests.exceptions.Timeout:
+                logger.debug(f"⏱️  Timeout Apollo.io pour {nom_entreprise}")
+                return None
+            except requests.exceptions.ConnectionError:
+                logger.debug(f"🔌 Erreur de connexion Apollo.io pour {nom_entreprise}")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"❌ Erreur requête Apollo.io pour {nom_entreprise}: {e}")
+                return None
             
             # Ne pas lever d'exception pour 422, juste logger
             if response.status_code == 422:
                 logger.debug(f"Apollo.io: Requête non valide pour {nom_entreprise} (422)")
                 return None
             
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.exceptions.HTTPError as e:
+                logger.debug(f"❌ Erreur HTTP Apollo.io: {e}")
+                return None
             data = response.json()
             
             if "organizations" in data and len(data["organizations"]) > 0:
@@ -179,9 +193,19 @@ class ApolloClient:
                     "per_page": 5
                 }
                 
-                response = requests.post(url, json=query_params, headers=self.headers, timeout=30)
-                response.raise_for_status()
-                data = response.json()
+                try:
+                    response = requests.post(url, json=query_params, headers=self.headers, timeout=(10, 30))
+                    response.raise_for_status()
+                    data = response.json()
+                except requests.exceptions.Timeout:
+                    logger.debug(f"⏱️  Timeout Apollo.io recherche dirigeant")
+                    continue
+                except requests.exceptions.ConnectionError:
+                    logger.debug(f"🔌 Erreur de connexion Apollo.io recherche dirigeant")
+                    continue
+                except requests.exceptions.RequestException as e:
+                    logger.debug(f"❌ Erreur requête Apollo.io recherche dirigeant: {e}")
+                    continue
                 
                 if "people" in data and len(data["people"]) > 0:
                     personne = data["people"][0]
@@ -227,9 +251,19 @@ class ApolloClient:
                 "per_page": 3
             }
             
-            response = requests.post(url, json=query_params, headers=self.headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            try:
+                response = requests.post(url, json=query_params, headers=self.headers, timeout=(10, 30))
+                response.raise_for_status()
+                data = response.json()
+            except requests.exceptions.Timeout:
+                logger.debug(f"⏱️  Timeout Apollo.io recherche dirigeant par entreprise")
+                return None
+            except requests.exceptions.ConnectionError:
+                logger.debug(f"🔌 Erreur de connexion Apollo.io recherche dirigeant par entreprise")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"❌ Erreur requête Apollo.io recherche dirigeant par entreprise: {e}")
+                return None
             
             if "people" in data and len(data["people"]) > 0:
                 personne = data["people"][0]

@@ -4,14 +4,15 @@ secteur_entreprise: "Marketing Digital"
 service_propose: "création de sites web et visibilité en ligne"
 
 # Zone de prospection
-ville: "Genève"
-pays: "Suisse"
+ville: "Aix en Provence"
+pays: "France"
 
 # Types d'entreprises à cibler (liste des secteurs/activités)
 cibles:
-  - "plombier"
+  - "Magasin de vêtements"
 
-# Message de vente à personnaliser
+# Messages de vente à personnaliser (templates multiples)
+# Le système choisira automatiquement le template selon le type d'entreprise
 message_base: |
   Bonjour {nom_dirigeant},
   
@@ -20,6 +21,42 @@ message_base: |
   Je vous contacte car je peux vous aider à {proposition_valeur}.
   
   Seriez-vous intéressé par un échange de 15 minutes cette semaine ?
+  
+  Cordialement
+
+# Template pour commerces locaux (restaurants, boutiques, artisans)
+message_commerce: |
+  Bonjour {nom_dirigeant},
+  
+  En tant que {nom_entreprise}, vous savez à quel point la visibilité locale est importante pour attirer de nouveaux clients.
+  
+  J'ai remarqué {point_specifique}, et je pense pouvoir vous aider à {proposition_valeur}.
+  
+  Pouvons-nous échanger 15 minutes cette semaine pour discuter de vos besoins ?
+  
+  Cordialement
+
+# Template pour entreprises B2B (cabinets, consultants, agences)
+message_b2b: |
+  Bonjour {nom_dirigeant},
+  
+  {nom_entreprise} semble être une référence dans votre secteur, notamment pour {point_specifique}.
+  
+  Je vous contacte car notre expertise pourrait vous aider à {proposition_valeur}.
+  
+  Seriez-vous disponible pour un échange de 15 minutes cette semaine afin d'explorer comment nous pourrions vous accompagner ?
+  
+  Cordialement
+
+# Template pour artisans/métiers (plombiers, électriciens, etc.)
+message_artisan: |
+  Bonjour {nom_dirigeant},
+  
+  En tant que professionnel du secteur, je sais combien il est important de se différencier et d'être facilement trouvable par vos clients.
+  
+  {nom_entreprise} se démarque par {point_specifique}. Nous pouvons vous aider à {proposition_valeur}.
+  
+  Aimeriez-vous échanger 15 minutes cette semaine ?
   
   Cordialement
 

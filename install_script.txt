@@ -1,0 +1,154 @@
+#!/bin/bash
+set -euo pipefail
+
+# MH-Prospect Installation Script
+# Server Files: /mnt/server
+
+echo "=== MH-Prospect :: install start ==="
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update -y
+apt-get install -y --no-install-recommends \
+  git curl jq file unzip make gcc g++ libtool \
+  python3 python3-pip python3-venv ca-certificates
+
+mkdir -p /mnt/server
+cd /mnt/server
+
+# (optionnel) évite certains soucis git "dubious ownership" selon les images
+git config --global --add safe.directory /mnt/server || true
+
+# Ensure .git suffix
+if [[ "${GIT_ADDRESS:-}" == "" ]]; then
+  echo "ERROR: GIT_ADDRESS is empty"
+  exit 1
+fi
+
+if [[ "${GIT_ADDRESS}" != *.git ]]; then
+  GIT_ADDRESS="${GIT_ADDRESS}.git"
+fi
+
+# If private repo with username/token
+if [ -n "${USERNAME:-}" ] && [ -n "${ACCESS_TOKEN:-}" ]; then
+  GIT_ADDRESS="https://${USERNAME}:${ACCESS_TOKEN}@$(echo -e "${GIT_ADDRESS}" | cut -d/ -f3-)"
+  echo "Using authenticated git URL"
+else
+  echo "Using anonymous git URL"
+fi
+
+# Always clone fresh from GitHub (force update)
+cd /mnt/server
+rm -rf * .[^.]* 2>/dev/null || true
+echo "Cloning latest version from GitHub..."
+if [ -z "${BRANCH:-}" ]; then
+  git clone "${GIT_ADDRESS}" .
+else
+  git clone --single-branch --branch "${BRANCH}" "${GIT_ADDRESS}" .
+fi
+echo "✅ Repository cloned"
+
+export HOME=/mnt/server
+
+# Python deps
+echo "Installing python requirements"
+python3 -m pip install --upgrade pip --break-system-packages
+
+if [ -f /mnt/server/requirements.txt ]; then
+  python3 -m pip install -r /mnt/server/requirements.txt --break-system-packages
+  echo "Verifying installation..."
+  python3 -c "import yaml; import requests; import openai; from dotenv import load_dotenv; from bs4 import BeautifulSoup; import flask; print('✅ All packages installed successfully')" || echo "⚠️  Warning: Some imports failed"
+else
+  echo "No requirements.txt found, skipping."
+fi
+
+# Generate config.yaml
+echo "Generating config.yaml from environment variables"
+python3 << 'PYEOF_INNER'
+import os
+
+config_lines = [
+    "# Configuration de l'agent de prospection B2B",
+    "# Votre entreprise",
+    f"secteur_entreprise: \"{os.environ.get('SERVER_SECTEUR_ENTREPRISE', 'Marketing Digital')}\"",
+    f"service_propose: \"{os.environ.get('SERVER_SERVICE_PROPOSE', 'création de sites web et visibilité en ligne')}\"",
+    "",
+    "# Zone de prospection",
+    f"ville: \"{os.environ.get('SERVER_VILLE', 'Genève')}\"",
+    f"pays: \"{os.environ.get('SERVER_PAYS', 'Suisse')}\"",
+    "",
+    "# Types d'entreprises à cibler",
+    "cibles:",
+]
+
+cibles = os.environ.get('SERVER_CIBLES', '- "hôtel"\n  - "restaurant"\n  - "boulangerie"')
+for line in cibles.split('\n'):
+    config_lines.append(line)
+
+config_lines.extend([
+    "",
+    "# Message de vente à personnaliser",
+    "message_base: |",
+])
+
+message_base = os.environ.get(
+    'SERVER_MESSAGE_BASE',
+    "Bonjour {nom_dirigeant},\n\n"
+    "J'ai remarqué que {nom_entreprise} excelle dans {point_specifique}.\n\n"
+    "Je vous contacte car je peux vous aider à {proposition_valeur}.\n\n"
+    "Seriez-vous intéressé par un échange de 15 minutes cette semaine ?\n\n"
+    "Cordialement"
+)
+for line in message_base.split('\n'):
+    config_lines.append(f"  {line}")
+
+config_lines.extend([
+    "",
+    f"proposition_valeur: \"{os.environ.get('SERVER_PROPOSITION_VALEUR', 'augmenter votre visibilité en ligne et générer plus de leads qualifiés')}\"",
+    "",
+    "# Paramètres de recherche",
+    f"nombre_resultats_serper: {os.environ.get('SERVER_NOMBRE_RESULTATS', '10')}",
+])
+
+with open('/mnt/server/config.yaml', 'w', encoding='utf-8') as f:
+    f.write('\n'.join(config_lines))
+
+print("Config.yaml generated successfully -> /mnt/server/config.yaml")
+PYEOF_INNER
+
+# Make sure we have a stable entrypoint: main.py
+echo "Ensuring entrypoint main.py exists"
+cd /mnt/server
+
+if [ ! -f "/mnt/server/main.py" ]; then
+  # Try common entry files
+  CANDIDATES=(
+    "/mnt/server/app.py"
+    "/mnt/server/run.py"
+    "/mnt/server/bot.py"
+    "/mnt/server/server.py"
+    "/mnt/server/src/main.py"
+    "/mnt/server/src/app.py"
+  )
+
+  FOUND=""
+  for f in "${CANDIDATES[@]}"; do
+    if [ -f "$f" ]; then
+      FOUND="$f"
+      break
+    fi
+  done
+
+  if [ -n "$FOUND" ]; then
+    echo "main.py not found. Creating symlink main.py -> ${FOUND}"
+    ln -s "$(realpath --relative-to=/mnt/server "$FOUND")" /mnt/server/main.py || cp "$FOUND" /mnt/server/main.py
+  else
+    echo "WARNING: No obvious entry file found. Startup will fail unless you add main.py or adjust the startup command."
+  fi
+fi
+
+echo "Files in /mnt/server:"
+ls -lah /mnt/server
+
+echo "=== MH-Prospect :: install complete ==="
+exit 0

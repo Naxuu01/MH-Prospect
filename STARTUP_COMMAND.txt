@@ -1,0 +1,42 @@
+# Startup Command pour Pterodactyl Egg
+
+## Commande à utiliser dans l'egg JSON (startup)
+
+Copiez-collez cette commande dans le champ "startup" de votre egg Pterodactyl :
+
+```
+bash -c "cd /home/container && if ! python3 -c 'import yaml' 2>/dev/null; then echo 'Installing Python packages...' && python3 -m pip install --upgrade pip --break-system-packages 2>&1 && python3 -m pip install -r requirements.txt --break-system-packages 2>&1 || echo 'Package installation completed'; fi && python3 start_agent.py"
+```
+
+## Explication
+
+Cette commande :
+1. ✅ Change dans le répertoire `/home/container` (répertoire de travail Pterodactyl)
+2. ✅ Vérifie si les packages Python sont installés
+3. ✅ Installe les packages si nécessaire (yaml, flask, etc.)
+4. ✅ Lance `start_agent.py` qui démarre :
+   - L'agent de prospection B2B (`main.py`)
+   - L'interface web Flask (`web_interface.py`)
+
+## Alternative : Interface web seule
+
+Si vous voulez seulement l'interface web (pour visualiser les prospects existants) :
+
+```
+bash -c "cd /home/container && if ! python3 -c 'import flask' 2>/dev/null; then python3 -m pip install --upgrade pip --break-system-packages 2>&1 && python3 -m pip install -r requirements.txt --break-system-packages 2>&1; fi && python3 web_interface.py"
+```
+
+## Alternative : Agent seul (sans interface web)
+
+Si vous ne voulez PAS l'interface web :
+
+```
+bash -c "cd /home/container && if ! python3 -c 'import yaml' 2>/dev/null; then echo 'Installing Python packages...' && python3 -m pip install --upgrade pip --break-system-packages 2>&1 && python3 -m pip install -r requirements.txt --break-system-packages 2>&1 || echo 'Package installation completed'; fi && python3 main.py"
+```
+
+## Note importante
+
+- L'interface web utilise automatiquement le port alloué par Pterodactyl (variable `SERVER_PORT`)
+- Vous pouvez accéder à l'interface via `http://VOTRE_IP:PORT` après le démarrage
+- Le port est visible dans Pterodactyl → Settings → Network
+

@@ -1,0 +1,162 @@
+{
+    "_comment": "DO NOT EDIT: FILE GENERATED AUTOMATICALLY BY PTERODACTYL PANEL - PTERODACTYL.IO",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2024-01-01T00:00:00+00:00",
+    "name": "MH-Prospect",
+    "author": "MH-Heberge",
+    "description": "Agent de prospection B2B autonome qui recherche et enrichit des prospects qualifiés",
+    "features": null,
+    "docker_images": {
+        "Python 3.11": "ghcr.io/parkervcp/yolks:python_3.11"
+    },
+    "file_denylist": [],
+    "startup": "bash -c \"cd /home/container && if ! python3 -c 'import yaml' 2>/dev/null; then echo 'Installing Python packages...' && python3 -m pip install --upgrade pip --break-system-packages 2>&1 && python3 -m pip install -r requirements.txt --break-system-packages 2>&1 || echo 'Package installation completed'; fi && python3 start_agent.py\"",
+    "config": {
+        "files": "{}",
+        "startup": "{\r\n    \"done\": \"Traitement de:\"\r\n}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\\r\\nset -euo pipefail\\r\\n\\r\\n# MH-Prospect Installation Script\\r\\n# Server Files: /mnt/server\\r\\n\\r\\necho \"=== MH-Prospect :: install start ===\"\\r\\n\\r\\nexport DEBIAN_FRONTEND=noninteractive\\r\\n\\r\\napt-get update -y\\r\\napt-get install -y --no-install-recommends \\\\r\\n  git curl jq file unzip make gcc g++ libtool \\\\r\\n  python3 python3-pip python3-venv ca-certificates\\r\\n\\r\\nmkdir -p /mnt/server\\r\\ncd /mnt/server\\r\\n\\r\\n# (optionnel) évite certains soucis git \"dubious ownership\" selon les images\\r\\ngit config --global --add safe.directory /mnt/server || true\\r\\n\\r\\n# Ensure .git suffix\\r\\nif [[ \"${GIT_ADDRESS:-}\" == \"\" ]]; then\\r\\n  echo \"ERROR: GIT_ADDRESS is empty\"\\r\\n  exit 1\\r\\nfi\\r\\n\\r\\nif [[ \"${GIT_ADDRESS}\" != *.git ]]; then\\r\\n  GIT_ADDRESS=\"${GIT_ADDRESS}.git\"\\r\\nfi\\r\\n\\r\\n# If private repo with username/token\\r\\nif [ -n \"${USERNAME:-}\" ] && [ -n \"${ACCESS_TOKEN:-}\" ]; then\\r\\n  GIT_ADDRESS=\"https://${USERNAME}:${ACCESS_TOKEN}@$(echo -e \"${GIT_ADDRESS}\" | cut -d/ -f3-)\"\\r\\n  echo \"Using authenticated git URL\"\\r\\nelse\\r\\n  echo \"Using anonymous git URL\"\\r\\nfi\\r\\n\\r\\n# Always clone fresh from GitHub (force update)\\r\\ncd /mnt/server\\r\\nrm -rf * .[^.]* 2>/dev/null || true\\r\\necho \"Cloning latest version from GitHub...\"\\r\\nif [ -z \"${BRANCH:-}\" ]; then\\r\\n  git clone \"${GIT_ADDRESS}\" .\\r\\nelse\\r\\n  git clone --single-branch --branch \"${BRANCH}\" \"${GIT_ADDRESS}\" .\\r\\nfi\\r\\necho \"✅ Repository cloned\"\\r\\n\\r\\nexport HOME=/mnt/server\\r\\n\\r\\n# Python deps\\r\\necho \"Installing python requirements\"\\r\\npython3 -m pip install --upgrade pip --break-system-packages\\r\\n\\r\\nif [ -f /mnt/server/requirements.txt ]; then\\r\\n  python3 -m pip install -r /mnt/server/requirements.txt --break-system-packages\\r\\n  echo \"Verifying installation...\"\\r\\n  python3 -c \"import yaml; import requests; import openai; from dotenv import load_dotenv; from bs4 import BeautifulSoup; import flask; import flask; print('✅ All packages installed successfully')\" || echo \"⚠️  Warning: Some imports failed\"\\r\\nelse\\r\\n  echo \"No requirements.txt found, skipping.\"\\r\\nfi\\r\\n\\r\\n# Generate config.yaml\\r\\necho \"Generating config.yaml from environment variables\"\\r\\npython3 << 'PYEOF_INNER'\\r\\nimport os\\r\\n\\r\\nconfig_lines = [\\r\\n    \"# Configuration de l'agent de prospection B2B\",\\r\\n    \"# Votre entreprise\",\\r\\n    f\"secteur_entreprise: \\\"{os.environ.get('SERVER_SECTEUR_ENTREPRISE', 'Marketing Digital')}\\\"\",\\r\\n    f\"service_propose: \\\"{os.environ.get('SERVER_SERVICE_PROPOSE', 'création de sites web et visibilité en ligne')}\\\"\",\\r\\n    \"\",\\r\\n    \"# Zone de prospection\",\\r\\n    f\"ville: \\\"{os.environ.get('SERVER_VILLE', 'Genève')}\\\"\",\\r\\n    f\"pays: \\\"{os.environ.get('SERVER_PAYS', 'Suisse')}\\\"\",\\r\\n    \"\",\\r\\n    \"# Types d'entreprises à cibler\",\\r\\n    \"cibles:\",\\r\\n]\\r\\n\\r\\ncibles = os.environ.get('SERVER_CIBLES', '- \\\"hôtel\\\"\\n  - \\\"restaurant\\\"\\n  - \\\"boulangerie\\\"')\\r\\nfor line in cibles.split('\\n'):\\r\\n    config_lines.append(line)\\r\\n\\r\\nconfig_lines.extend([\\r\\n    \"\",\\r\\n    \"# Message de vente à personnaliser\",\\r\\n    \"message_base: |\",\\r\\n])\\r\\n\\r\\nmessage_base = os.environ.get(\\r\\n    'SERVER_MESSAGE_BASE',\\r\\n    \"Bonjour {nom_dirigeant},\\n\\n\"\\r\\n    \"J'ai remarqué que {nom_entreprise} excelle dans {point_specifique}.\\n\\n\"\\r\\n    \"Je vous contacte car je peux vous aider à {proposition_valeur}.\\n\\n\"\\r\\n    \"Seriez-vous intéressé par un échange de 15 minutes cette semaine ?\\n\\n\"\\r\\n    \"Cordialement\"\\r\\n)\\r\\nfor line in message_base.split('\\n'):\\r\\n    config_lines.append(f\"  {line}\")\\r\\n\\r\\nconfig_lines.extend([\\r\\n    \"\",\\r\\n    f\"proposition_valeur: \\\"{os.environ.get('SERVER_PROPOSITION_VALEUR', 'augmenter votre visibilité en ligne et générer plus de leads qualifiés')}\\\"\",\\r\\n    \"\",\\r\\n    \"# Paramètres de recherche\",\\r\\n    f\"nombre_resultats_serper: {os.environ.get('SERVER_NOMBRE_RESULTATS', '10')}\",\\r\\n])\\r\\n\\r\\nwith open('/mnt/server/config.yaml', 'w', encoding='utf-8') as f:\\r\\n    f.write('\\n'.join(config_lines))\\r\\n\\r\\nprint(\"Config.yaml generated successfully -> /mnt/server/config.yaml\")\\r\\nPYEOF_INNER\\r\\n\\r\\n# Make sure we have a stable entrypoint: main.py\\r\\necho \"Ensuring entrypoint main.py exists\"\\r\\ncd /mnt/server\\r\\n\\r\\nif [ ! -f \"/mnt/server/main.py\" ]; then\\r\\n  # Try common entry files\\r\\n  CANDIDATES=(\\r\\n    \"/mnt/server/app.py\"\\r\\n    \"/mnt/server/run.py\"\\r\\n    \"/mnt/server/bot.py\"\\r\\n    \"/mnt/server/server.py\"\\r\\n    \"/mnt/server/src/main.py\"\\r\\n    \"/mnt/server/src/app.py\"\\r\\n  )\\r\\n\\r\\n  FOUND=\"\"\\r\\n  for f in \"${CANDIDATES[@]}\"; do\\r\\n    if [ -f \"$f\" ]; then\\r\\n      FOUND=\"$f\"\\r\\n      break\\r\\n    fi\\r\\n  done\\r\\n\\r\\n  if [ -n \"$FOUND\" ]; then\\r\\n    echo \"main.py not found. Creating symlink main.py -> ${FOUND}\"\\r\\n    ln -s \"$(realpath --relative-to=/mnt/server \"$FOUND\")\" /mnt/server/main.py || cp \"$FOUND\" /mnt/server/main.py\\r\\n  else\\r\\n    echo \"WARNING: No obvious entry file found. Startup will fail unless you add main.py or adjust the startup command.\"\\r\\n  fi\\r\\nfi\\r\\n\\r\\necho \"Files in /mnt/server:\"\\r\\nls -lah /mnt/server\\r\\n\\r\\necho \"=== MH-Prospect :: install complete ===\"\\r\\nexit 0",
+            "container": "ghcr.io/parkervcp/installers:debian",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Git Repo Address",
+            "description": "Git repo to clone\r\n\r\nDefault: https://github.com/Naxuu01/MH-Prospect",
+            "env_variable": "GIT_ADDRESS",
+            "default_value": "https://github.com/Naxuu01/MH-Prospect",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Branch",
+            "description": "What branch to pull from github.\r\n\r\nDefault is blank to pull the repo default branch",
+            "env_variable": "BRANCH",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "User Uploaded Files",
+            "description": "Skip all the install stuff if you are letting a user upload files.\r\n\r\n0 = false (default)\r\n1 = true",
+            "env_variable": "USER_UPLOAD",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Username",
+            "description": "Username to auth with git.",
+            "env_variable": "USERNAME",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Access Token",
+            "description": "Password to use with git.\r\n\r\nIt's best practice to use a Personal Access Token.\r\nhttps://github.com/settings/tokens",
+            "env_variable": "ACCESS_TOKEN",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Secteur Entreprise",
+            "description": "Secteur de votre entreprise (ex: Marketing Digital)",
+            "env_variable": "SERVER_SECTEUR_ENTREPRISE",
+            "default_value": "Marketing Digital",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "Service Proposé",
+            "description": "Service que vous proposez (ex: création de sites web et visibilité en ligne)",
+            "env_variable": "SERVER_SERVICE_PROPOSE",
+            "default_value": "création de sites web et visibilité en ligne",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:500",
+            "field_type": "text"
+        },
+        {
+            "name": "Ville",
+            "description": "Ville de prospection (ex: Genève)",
+            "env_variable": "SERVER_VILLE",
+            "default_value": "Genève",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:100",
+            "field_type": "text"
+        },
+        {
+            "name": "Pays",
+            "description": "Pays de prospection (ex: Suisse)",
+            "env_variable": "SERVER_PAYS",
+            "default_value": "Suisse",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:100",
+            "field_type": "text"
+        },
+        {
+            "name": "Cibles",
+            "description": "Types d'entreprises à cibler (format YAML, une ligne par item avec indentation, ex: - \"hôtel\"\\n  - \"restaurant\"\\n  - \"boulangerie\")",
+            "env_variable": "SERVER_CIBLES",
+            "default_value": "- \"hôtel\"\\n  - \"restaurant\"\\n  - \"boulangerie\"\\n  - \"plomberie\"\\n  - \"agence web\"\\n  - \"friperie\"\\n  - \"crêperie\"\\n  - \"vendeur de bureaux\"\\n  - \"fiduciaire\"\\n  - \"cabinet comptable\"\\n  - \"architecte\"\\n  - \"artisan\"",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:2000",
+            "field_type": "textarea"
+        },
+        {
+            "name": "Message Base",
+            "description": "Template du message de prospection (utilise {nom_dirigeant}, {nom_entreprise}, {point_specifique}, {proposition_valeur}). Utilisez \\n pour les retours à la ligne.",
+            "env_variable": "SERVER_MESSAGE_BASE",
+            "default_value": "Bonjour {nom_dirigeant},\\n\\nJ'ai remarqué que {nom_entreprise} excelle dans {point_specifique}.\\n\\nJe vous contacte car je peux vous aider à {proposition_valeur}.\\n\\nSeriez-vous intéressé par un échange de 15 minutes cette semaine ?\\n\\nCordialement",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:2000",
+            "field_type": "textarea"
+        },
+        {
+            "name": "Proposition Valeur",
+            "description": "Proposition de valeur (ex: augmenter votre visibilité en ligne et générer plus de leads qualifiés)",
+            "env_variable": "SERVER_PROPOSITION_VALEUR",
+            "default_value": "augmenter votre visibilité en ligne et générer plus de leads qualifiés",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:500",
+            "field_type": "text"
+        },
+        {
+            "name": "Nombre Résultats",
+            "description": "Nombre de résultats à chercher par recherche (défaut: 10)",
+            "env_variable": "SERVER_NOMBRE_RESULTATS",
+            "default_value": "10",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|min:1|max:50",
+            "field_type": "text"
+        }
+    ]
+}
