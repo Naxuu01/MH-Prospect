@@ -175,16 +175,21 @@ class AgentProspection:
         from display_utils import print_info, Colors
         print_info("🔍 Source", "Serper.dev (recherche web complémentaire)", width=100, value_color=Colors.CYAN)
         logger.info("🔍 Recherche complémentaire via Serper...")
-        entreprises_serper = self.serper.rechercher_entreprises_qualifiees(
-            service_propose=self.service_propose,
-            secteur_entreprise=self.secteur_entreprise,
-            ville=self.ville,
-            pays=self.pays,
-            nombre_resultats=self.nombre_resultats,
-            cibles=self.cibles,  # Passer les cibles depuis la config
-            proposition_valeur=self.proposition_valeur  # Passer la proposition de valeur
-        )
-        entreprises.extend(entreprises_serper)
+        try:
+            entreprises_serper = self.serper.rechercher_entreprises_qualifiees(
+                service_propose=self.service_propose or "",
+                secteur_entreprise=self.secteur_entreprise or "",
+                ville=self.ville or "",
+                pays=self.pays or "",
+                nombre_resultats=self.nombre_resultats,
+                cibles=self.cibles,  # Passer les cibles depuis la config
+                proposition_valeur=self.proposition_valeur or ""  # Passer la proposition de valeur
+            )
+            if entreprises_serper:
+                entreprises.extend(entreprises_serper)
+        except Exception as e:
+            logger.error(f"Erreur lors de la recherche Serper: {e}", exc_info=True)
+            # Continuer même en cas d'erreur pour ne pas bloquer le processus
         
         # Filtrer et nettoyer les résultats
         nouvelles_entreprises = []
@@ -303,20 +308,22 @@ class AgentProspection:
         Returns:
             Code pays normalisé (ex: "ch", "fr", "ca", "qc") ou None
         """
-        texte_complet = f"{nom} {site_web}".lower()
+        nom_safe = nom or ""
+        site_web_safe = site_web or ""
+        texte_complet = f"{nom_safe} {site_web_safe}".lower()
         
         # Vérifier le domaine du site web (le plus fiable)
-        if ".qc.ca" in site_web.lower() or ".quebec" in site_web.lower():
+        if ".qc.ca" in site_web_safe.lower() or ".quebec" in site_web_safe.lower():
             return "qc"
-        if ".ch" in site_web.lower():
+        if ".ch" in site_web_safe.lower():
             return "ch"
-        if ".fr" in site_web.lower() and ".qc.ca" not in site_web.lower():
+        if ".fr" in site_web_safe.lower() and ".qc.ca" not in site_web_safe.lower():
             return "fr"
-        if ".ca" in site_web.lower() and ".qc.ca" not in site_web.lower():
+        if ".ca" in site_web_safe.lower() and ".qc.ca" not in site_web_safe.lower():
             return "ca"
-        if ".be" in site_web.lower():
+        if ".be" in site_web_safe.lower():
             return "be"
-        if ".lu" in site_web.lower():
+        if ".lu" in site_web_safe.lower():
             return "lu"
         
         # Vérifier les mots-clés géographiques
@@ -346,7 +353,7 @@ class AgentProspection:
         Returns:
             Code pays normalisé
         """
-        pays_lower = pays.lower().strip()
+        pays_lower = (pays or "").lower().strip()
         
         if pays_lower in ["suisse", "switzerland", "schweiz", "ch"]:
             return "ch"
@@ -633,10 +640,10 @@ class AgentProspection:
         Returns:
             Template de message à utiliser
         """
-        nom = prospect.get("nom_entreprise", "").lower()
-        industrie = prospect.get("industrie", "").lower()
-        description = prospect.get("description", "").lower()
-        technologies = prospect.get("technologies", "").lower()
+        nom = (prospect.get("nom_entreprise") or "").lower()
+        industrie = (prospect.get("industrie") or "").lower()
+        description = (prospect.get("description") or "").lower()
+        technologies = (prospect.get("technologies") or "").lower()
         
         # Détecter le type d'entreprise
         commerce_keywords = ["restaurant", "boutique", "commerce", "retail", "magasin", "épicerie", "boulangerie", "coiffeur", "salon"]
@@ -807,10 +814,16 @@ class AgentProspection:
         logger.info(f"📊 Secteur: {self.secteur_entreprise} | Zone: {self.ville}, {self.pays}")
         
         # Charger les prospects initiaux
-        self.charger_prospects_initiaux()
+        try:
+            self.charger_prospects_initiaux()
+        except Exception as e:
+            logger.error(f"❌ Erreur lors du chargement des prospects initiaux: {e}", exc_info=True)
+            logger.warning("⚠️  Continuation avec les prospects déjà existants dans la base de données...")
         
         if self.file_attente.empty():
             logger.warning("⚠️  Aucun nouveau prospect trouvé. Relancez une recherche ou vérifiez la configuration.")
+            # Ne pas arrêter complètement - continuer avec les prospects existants
+            logger.info("ℹ️  L'agent continuera de fonctionner et tentera de charger de nouveaux prospects plus tard.")
             return
         
         # Afficher les statistiques initiales
