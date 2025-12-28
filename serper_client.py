@@ -49,7 +49,7 @@ class SerperClient:
             # Exclusion explicite des grandes plateformes, sites immobiliers, sites gouvernementaux
             
             # Analyser le service proposé pour créer des requêtes ciblées
-            service_lower = service_propose.lower()
+            service_lower = (service_propose or "").lower()
             
             # Exclusions massives : grandes plateformes, immobilier, gouvernemental, grandes marques, filiales et médias
             exclusions = (
@@ -67,7 +67,7 @@ class SerperClient:
             )
             
             # EXCLUSIONS GÉOGRAPHIQUES STRICTES : Si Suisse, exclure explicitement tout ce qui est Québec/Canada
-            if pays.lower() in ["suisse", "switzerland"]:
+            if pays and pays.lower() in ["suisse", "switzerland"]:
                 exclusions += (
                     " -site:.qc.ca -site:.ca -Québec -Montréal -Canada -quebec -montreal -canada "
                     "-toronto -vancouver -ottawa -calgary -edmonton "
@@ -95,8 +95,8 @@ class SerperClient:
             gl_code, hl_code = self._determiner_codes_geo(pays)
             
             # Construire la localisation précise pour le paramètre location (format: "Ville, Pays")
-            ville_clean = ville.strip()
-            pays_lower = pays.lower()
+            ville_clean = (ville or "").strip()
+            pays_lower = (pays or "").lower()
             if pays_lower in ["suisse", "switzerland", "schweiz"]:
                 pays_normalise = "Suisse"
             elif pays_lower in ["france"]:
@@ -119,15 +119,24 @@ class SerperClient:
             
             logger.debug(f"Payload Serper: gl={gl_code}, hl={hl_code}, location={location_precise}, query={query[:100]}...")
             
-            response = requests.post(
-                f"{self.base_url}/search",
-                headers=self.headers,
-                json=payload,
-                timeout=30
-            )
-            
-            response.raise_for_status()
-            data = response.json()
+            try:
+                response = requests.post(
+                    f"{self.base_url}/search",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=(10, 30)  # (connect timeout, read timeout)
+                )
+                response.raise_for_status()
+                data = response.json()
+            except requests.exceptions.Timeout as e:
+                logger.error(f"⏱️  Timeout lors de la requête Serper.dev: {e}")
+                return []
+            except requests.exceptions.ConnectionError as e:
+                logger.error(f"🔌 Erreur de connexion Serper.dev: {e}")
+                return []
+            except requests.exceptions.RequestException as e:
+                logger.error(f"❌ Erreur requête Serper.dev: {e}")
+                return []
             
             entreprises = []
             
@@ -189,6 +198,8 @@ class SerperClient:
         Returns:
             True si le site doit être exclu, False sinon
         """
+        if not url:
+            return True  # Exclure si URL est None ou vide
         url_lower = url.lower()
         
         # Domaines à exclure : gouvernementaux, grandes plateformes, immobilier, groupes/hôtels, etc.
@@ -249,7 +260,9 @@ class SerperClient:
         Returns:
             True si le résultat doit être exclu, False sinon
         """
-        texte_complet = (titre + " " + description).lower()
+        titre_safe = titre or ""
+        description_safe = description or ""
+        texte_complet = (titre_safe + " " + description_safe).lower()
         
         # Mots-clés qui indiquent un site non pertinent (gouvernemental, grande entreprise, immobilier)
         mots_exclus = [
@@ -372,7 +385,7 @@ class SerperClient:
                     domaine_site = parsed.netloc.replace("www.", "").lower()
                 
                 # Normaliser le nom de l'entreprise pour comparaison
-                nom_normalise = nom_entreprise.lower().replace(" ", "").replace("-", "").replace("_", "")
+                nom_normalise = (nom_entreprise or "").lower().replace(" ", "").replace("-", "").replace("_", "")
                 
                 for result in data["organic"]:
                     link = result.get("link", "")
@@ -411,8 +424,8 @@ class SerperClient:
         Returns:
             Chaîne de localisation formatée pour Google
         """
-        ville_clean = ville.strip()
-        pays_lower = pays.lower()
+        ville_clean = (ville or "").strip()
+        pays_lower = (pays or "").lower()
         
         # Normaliser le nom du pays
         if pays_lower in ["suisse", "switzerland", "schweiz"]:
@@ -439,7 +452,7 @@ class SerperClient:
         Returns:
             Chaîne d'exclusions géographiques
         """
-        pays_lower = pays.lower()
+        pays_lower = (pays or "").lower()
         exclusions_geo = ""
         
         if pays_lower in ["suisse", "switzerland", "schweiz"]:
@@ -475,7 +488,7 @@ class SerperClient:
         Returns:
             Tuple (gl_code, hl_code)
         """
-        pays_lower = pays.lower()
+        pays_lower = (pays or "").lower()
         
         if pays_lower in ["suisse", "switzerland", "schweiz"]:
             return ("ch", "fr")  # Suisse, langue française
@@ -511,8 +524,8 @@ class SerperClient:
         Returns:
             Requête Google optimisée et qualifiée
         """
-        service_lower = service_propose.lower()
-        proposition_lower = proposition_valeur.lower() if proposition_valeur else ""
+        service_lower = (service_propose or "").lower()
+        proposition_lower = (proposition_valeur or "").lower()
         
         # Identifier les signaux de besoin selon le service proposé
         # OPTIMISATION PRINCIPALE: Services web/digitaux (développeurs web, agences web, agences de com)
@@ -520,7 +533,7 @@ class SerperClient:
         termes_qualification = '"PME" OR "commerce local" OR "artisan" OR "indépendant" OR "entreprise"'
         
         # Détection intelligente des services pour identifier les besoins
-        service_lower = service_propose.lower()
+        service_lower = (service_propose or "").lower()
         
         # PRIORITÉ #1: Services numériques/web/développement (optimisé pour développeurs web, agences web, agences de com)
         if any(mot in service_lower for mot in ["site web", "website", "internet", "web", "e-commerce", "ecommerce", 
@@ -690,7 +703,7 @@ class SerperClient:
             # Grouper les cibles intelligemment avec variantes automatiques
             cibles_groupes = []
             for cible in cibles:
-                cible_lower = cible.lower()
+                cible_lower = (cible or "").lower()
                 # Ajouter des variantes intelligentes pour améliorer les résultats
                 if any(mot in cible_lower for mot in ["restaurant", "restauration", "bistrot", "brasserie"]):
                     cibles_groupes.append(f'"{cible}" OR "restaurant {ville}" OR "restauration {ville}"')
@@ -757,20 +770,23 @@ class SerperClient:
         Returns:
             Code pays normalisé (ex: "ch", "fr", "ca", "qc") ou None
         """
-        texte_complet = (titre + " " + description + " " + link).lower()
+        titre_safe = titre or ""
+        description_safe = description or ""
+        link_safe = link or ""
+        texte_complet = (titre_safe + " " + description_safe + " " + link_safe).lower()
         
         # Vérifier le domaine du site web (le plus fiable)
-        if ".qc.ca" in link.lower() or ".quebec" in link.lower():
+        if ".qc.ca" in link_safe.lower() or ".quebec" in link_safe.lower():
             return "qc"
-        if ".ch" in link.lower():
+        if ".ch" in link_safe.lower():
             return "ch"
-        if ".fr" in link.lower() and ".qc.ca" not in link.lower():
+        if ".fr" in link_safe.lower() and ".qc.ca" not in link_safe.lower():
             return "fr"
-        if ".ca" in link.lower() and ".qc.ca" not in link.lower():
+        if ".ca" in link_safe.lower() and ".qc.ca" not in link_safe.lower():
             return "ca"
-        if ".be" in link.lower():
+        if ".be" in link_safe.lower():
             return "be"
-        if ".lu" in link.lower():
+        if ".lu" in link_safe.lower():
             return "lu"
         
         # Vérifier les mots-clés géographiques dans le texte
@@ -800,7 +816,7 @@ class SerperClient:
         Returns:
             Code pays normalisé
         """
-        pays_lower = pays.lower().strip()
+        pays_lower = (pays or "").lower().strip()
         
         if pays_lower in ["suisse", "switzerland", "schweiz", "ch"]:
             return "ch"
