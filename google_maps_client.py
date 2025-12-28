@@ -165,8 +165,8 @@ class GoogleMapsClient:
             Code pays normalisé (ex: "ch", "fr", "ca", "qc") ou None
         """
         address_components = details.get("address_components", [])
-        adresse = details.get("formatted_address", "").lower()
-        site_web = details.get("website", "").lower()
+        adresse = (details.get("formatted_address") or "").lower()
+        site_web = (details.get("website") or "").lower()
         
         # 1. Vérifier d'abord les composants d'adresse (le plus fiable)
         for comp in address_components:
@@ -605,8 +605,8 @@ class GoogleMapsClient:
             Liste de termes de qualification
         """
         termes = []
-        service_lower = service_propose.lower()
-        prop_lower = proposition_valeur.lower() if proposition_valeur else ""
+        service_lower = (service_propose or "").lower()
+        prop_lower = (proposition_valeur or "").lower()
         
         # PRIORITÉ #1: Services web/développement (optimisé pour développeurs web, agences web)
         if any(mot in service_lower for mot in ["site web", "website", "web", "développement", "developpement", 
