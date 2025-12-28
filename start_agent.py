@@ -20,8 +20,14 @@ def run_agent():
         agent_main()
     except KeyboardInterrupt:
         logger.info("⏹️  Agent arrêté")
+        raise  # Propager KeyboardInterrupt pour arrêter proprement
     except Exception as e:
         logger.error(f"❌ Erreur agent: {e}", exc_info=True)
+        # Ne pas arrêter complètement - l'interface web doit continuer
+        logger.warning("⚠️  L'agent a rencontré une erreur, mais l'interface web continue de fonctionner")
+        # Attendre un peu avant de réessayer ou arrêter gracieusement
+        import time
+        time.sleep(5)
 
 
 def run_web_interface():
@@ -36,7 +42,9 @@ def run_web_interface():
         logger.info("⏹️  Interface web arrêtée")
     except Exception as e:
         logger.error(f"❌ Erreur interface web: {e}", exc_info=True)
-        raise
+        # Ne pas raise pour ne pas faire crasher le thread principal
+        # L'interface web est critique, donc on log l'erreur mais on continue
+        logger.warning("⚠️  L'interface web ne démarre pas, mais l'agent continuera de fonctionner")
 
 
 def main():
