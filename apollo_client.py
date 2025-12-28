@@ -68,7 +68,7 @@ class ApolloClient:
         """
         try:
             # Filtrer les noms d'entreprises invalides (requêtes de recherche, etc.)
-            if len(nom_entreprise) > 100 or "demander" in nom_entreprise.lower() or "permis" in nom_entreprise.lower():
+            if not nom_entreprise or len(nom_entreprise) > 100 or "demander" in (nom_entreprise or "").lower() or "permis" in (nom_entreprise or "").lower():
                 logger.debug(f"Nom d'entreprise suspect, skip Apollo: {nom_entreprise}")
                 return None
             
