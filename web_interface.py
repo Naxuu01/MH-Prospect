@@ -254,12 +254,87 @@ HTML_TEMPLATE = """
             padding: 3rem;
             color: #999;
         }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 10000;
+            animation: slideIn 0.3s ease-out;
+            display: none;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        .new-prospect {
+            animation: highlightNew 3s ease-out;
+            border-left: 4px solid #10b981 !important;
+        }
+        @keyframes highlightNew {
+            0% { 
+                background: #fef3c7 !important;
+                transform: scale(1.02);
+            }
+            30% { 
+                background: #d1fae5 !important;
+                transform: scale(1.01);
+            }
+            100% { 
+                background: white !important;
+                transform: scale(1);
+            }
+        }
+        .auto-refresh-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(102, 126, 234, 0.9);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .auto-refresh-indicator .dot {
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>📊 Dashboard MH Prospect</h1>
-        <p>Gestion et visualisation des prospects</p>
+        <p>Gestion et visualisation des prospects - Mise à jour automatique</p>
+    </div>
+    
+    <!-- Toast pour notifications -->
+    <div id="toast" class="toast"></div>
+    
+    <!-- Indicateur de rafraîchissement automatique -->
+    <div class="auto-refresh-indicator">
+        <span class="dot"></span>
+        <span>Mise à jour automatique</span>
     </div>
     
     <div class="container">
@@ -359,25 +434,76 @@ HTML_TEMPLATE = """
     
     <script>
         let prospects = [];
+        let previousProspectIds = new Set();
         let sortColumn = 'score';
         let sortDirection = 'desc';
+        let isInitialLoad = true;
+        
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
+        }
         
         async function loadData() {
             try {
                 const response = await fetch('/api/stats');
                 const stats = await response.json();
+                const oldTotal = parseInt(document.getElementById('stat-total').textContent) || 0;
                 document.getElementById('stat-total').textContent = stats.total;
                 document.getElementById('stat-email').textContent = stats.avec_email;
                 document.getElementById('stat-phone').textContent = stats.avec_telephone;
                 document.getElementById('stat-score').textContent = stats.score_moyen ? Math.round(stats.score_moyen) : '-';
+                
+                // Notification si nouveau prospect détecté via stats
+                if (!isInitialLoad && stats.total > oldTotal) {
+                    showToast(`🎉 ${stats.total - oldTotal} nouveau(x) prospect(s) ajouté(s) !`);
+                }
             } catch (e) {
                 console.error('Erreur chargement stats:', e);
             }
             
             try {
                 const response = await fetch('/api/prospects');
-                prospects = await response.json();
+                const newProspects = await response.json();
+                
+                // Détecter les nouveaux prospects
+                if (!isInitialLoad) {
+                    const newProspectIds = new Set(newProspects.map(p => p.id));
+                    const newIds = [...newProspectIds].filter(id => !previousProspectIds.has(id));
+                    
+                    if (newIds.length > 0) {
+                        const count = newIds.length;
+                        showToast(`✨ ${count} nouveau(x) prospect(s) détecté(s) !`);
+                        // Marquer les nouveaux prospects pour animation après rendu
+                        setTimeout(() => {
+                            newIds.forEach((id, index) => {
+                                const row = document.querySelector(`tr[data-prospect-id="${id}"]`);
+                                if (row) {
+                                    row.classList.add('new-prospect');
+                                    // Faire défiler vers le premier nouveau prospect
+                                    if (index === 0) {
+                                        setTimeout(() => {
+                                            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        }, 200);
+                                    }
+                                    // Retirer la classe après l'animation
+                                    setTimeout(() => {
+                                        row.classList.remove('new-prospect');
+                                    }, 3000);
+                                }
+                            });
+                        }, 100);
+                    }
+                }
+                
+                prospects = newProspects;
+                previousProspectIds = new Set(prospects.map(p => p.id));
                 renderTable();
+                isInitialLoad = false;
             } catch (e) {
                 console.error('Erreur chargement prospects:', e);
                 document.getElementById('prospects-table').innerHTML = 
@@ -400,7 +526,7 @@ HTML_TEMPLATE = """
                 const techs = p.technologies ? p.technologies.split(',').slice(0, 2).join(', ') : '-';
                 
                 return `
-                    <tr>
+                    <tr data-prospect-id="${p.id}">
                         <td class="score-cell">${scoreBadge}</td>
                         <td><strong>${escapeHtml(p.nom_entreprise || '-')}</strong><br>
                             <small style="color: #999;">${escapeHtml(p.site_web || '')}</small></td>
@@ -542,7 +668,8 @@ HTML_TEMPLATE = """
         
         // Charger les données au démarrage
         loadData();
-        setInterval(loadData, 30000); // Rafraîchir toutes les 30 secondes
+        // Rafraîchir toutes les 2 secondes pour mise à jour en temps réel
+        setInterval(loadData, 2000);
     </script>
 </body>
 </html>
