@@ -1,25 +1,56 @@
 """
 Module de gestion de la base de données SQLite pour stocker les prospects.
 """
+import os
 import sqlite3
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
+def get_database_path() -> str:
+    """
+    Détermine le chemin de la base de données de manière cohérente.
+    Compatible avec Pterodactyl et isolation par serveur.
+    
+    Returns:
+        Chemin complet vers le fichier de base de données
+    """
+    # Pterodactyl utilise /home/container comme répertoire de travail par serveur
+    # Chaque serveur Pterodactyl a son propre répertoire isolé
+    if os.path.exists("/home/container"):
+        base_dir = Path("/home/container")
+    elif os.path.exists("/mnt/server"):
+        base_dir = Path("/mnt/server")
+    else:
+        # Mode développement local
+        base_dir = Path(__file__).parent
+    
+    # Permettre de surcharger via variable d'environnement
+    db_path = os.getenv("DB_PATH", str(base_dir / "prospects.db"))
+    
+    return db_path
+
+
 class ProspectDatabase:
     """Gestion de la base de données SQLite pour les prospects."""
     
-    def __init__(self, db_path: str = "prospects.db"):
+    def __init__(self, db_path: Optional[str] = None):
         """
         Initialise la connexion à la base de données.
         
         Args:
-            db_path: Chemin vers le fichier de base de données
+            db_path: Chemin vers le fichier de base de données (None = détermination automatique)
         """
-        self.db_path = db_path
+        if db_path is None:
+            self.db_path = get_database_path()
+        else:
+            self.db_path = db_path
+        
+        logger.info(f"📁 Base de données utilisée: {self.db_path}")
         self._init_database()
     
     def _init_database(self):
