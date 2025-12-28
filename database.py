@@ -16,21 +16,33 @@ def get_database_path() -> str:
     Détermine le chemin de la base de données de manière cohérente.
     Compatible avec Pterodactyl et isolation par serveur.
     
+    IMPORTANT: Dans Pterodactyl, /mnt/server est le répertoire monté qui persiste
+    entre les redémarrages. Chaque serveur a son propre /mnt/server isolé.
+    
     Returns:
         Chemin complet vers le fichier de base de données
     """
-    # Pterodactyl utilise /home/container comme répertoire de travail par serveur
-    # Chaque serveur Pterodactyl a son propre répertoire isolé
-    if os.path.exists("/home/container"):
-        base_dir = Path("/home/container")
-    elif os.path.exists("/mnt/server"):
+    # PRIORITÉ: /mnt/server (persiste entre redémarrages dans Pterodactyl)
+    # Chaque serveur Pterodactyl a son propre /mnt/server monté = isolation complète
+    if os.path.exists("/mnt/server"):
         base_dir = Path("/mnt/server")
+    elif os.path.exists("/home/container"):
+        # /home/container est souvent un lien vers /mnt/server, mais vérifions d'abord /mnt/server
+        base_dir = Path("/home/container")
     else:
         # Mode développement local
         base_dir = Path(__file__).parent
     
+    # S'assurer que le répertoire existe
+    base_dir.mkdir(parents=True, exist_ok=True)
+    
     # Permettre de surcharger via variable d'environnement
     db_path = os.getenv("DB_PATH", str(base_dir / "prospects.db"))
+    
+    # Logger pour debug
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"📁 Chemin base de données déterminé: {db_path} (répertoire: {base_dir})")
     
     return db_path
 
@@ -56,6 +68,13 @@ class ProspectDatabase:
     def _init_database(self):
         """Initialise la structure de la base de données."""
         try:
+            # S'assurer que le répertoire parent existe
+            db_dir = Path(self.db_path).parent
+            db_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Vérifier si la base existe déjà
+            db_exists = os.path.exists(self.db_path)
+            
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
@@ -124,9 +143,14 @@ class ProspectDatabase:
             
             conn.commit()
             conn.close()
-            logger.info("Base de données initialisée avec succès")
+            
+            if db_exists:
+                logger.info(f"✅ Base de données existante chargée: {self.db_path}")
+            else:
+                logger.info(f"✅ Nouvelle base de données créée: {self.db_path}")
         except Exception as e:
-            logger.error(f"Erreur lors de l'initialisation de la base de données: {e}")
+            logger.error(f"❌ Erreur lors de l'initialisation de la base de données: {e}")
+            logger.error(f"   Chemin: {self.db_path}")
             raise
     
     def ajouter_prospect(self, prospect_data: Dict[str, Any]) -> Optional[int]:
