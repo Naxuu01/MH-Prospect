@@ -25,11 +25,12 @@ from database import get_database_path
 # Chaque serveur Pterodactyl a son propre répertoire isolé = isolation des données
 DB_PATH = get_database_path()
 
-# Déterminer le répertoire de base pour les exports
-if os.path.exists("/home/container"):
-    BASE_DIR = Path("/home/container")
-elif os.path.exists("/mnt/server"):
+# Déterminer le répertoire de base pour les exports (même logique que la base de données)
+# PRIORITÉ: /mnt/server pour la persistance dans Pterodactyl
+if os.path.exists("/mnt/server"):
     BASE_DIR = Path("/mnt/server")
+elif os.path.exists("/home/container"):
+    BASE_DIR = Path("/home/container")
 else:
     BASE_DIR = Path(__file__).parent
 
@@ -349,7 +350,10 @@ HTML_TEMPLATE = """
     <div class="container">
         <div style="background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 1rem; margin-bottom: 1.5rem; border-radius: 5px; font-size: 0.9rem; color: #1e40af;">
             <strong>🔒 Isolation des données :</strong> Ce dashboard affiche uniquement les prospects de ce serveur. 
-            Chaque instance de serveur Pterodactyl dispose de sa propre base de données isolée.
+            Chaque instance de serveur Pterodactyl dispose de sa propre base de données isolée dans <code>/mnt/server</code> (persiste entre les redémarrages).
+            <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;" id="db-path-info">
+                Chemin de la base de données: <code id="db-path">-</code>
+            </div>
         </div>
         
         <div class="stats-grid" id="stats">
@@ -471,6 +475,11 @@ HTML_TEMPLATE = """
                 document.getElementById('stat-email').textContent = stats.avec_email;
                 document.getElementById('stat-phone').textContent = stats.avec_telephone;
                 document.getElementById('stat-score').textContent = stats.score_moyen ? Math.round(stats.score_moyen) : '-';
+                
+                // Afficher le chemin de la base de données
+                if (stats.db_path) {
+                    document.getElementById('db-path').textContent = stats.db_path;
+                }
                 
                 // Notification si nouveau prospect détecté via stats
                 if (!isInitialLoad && stats.total > oldTotal) {
@@ -730,7 +739,8 @@ def api_stats():
             'avec_telephone': avec_telephone,
             'score_moyen': round(score_moyen, 1),
             'excellent': excellent,
-            'bon': bon
+            'bon': bon,
+            'db_path': DB_PATH  # Ajouter le chemin pour debug
         })
     except sqlite3.Error as e:
         logger.error(f"Erreur DB API stats: {e}")
@@ -859,14 +869,21 @@ def main():
     
     host = os.getenv("HOST", "0.0.0.0")  # 0.0.0.0 pour accepter les connexions externes
     
-    # Vérifier que la base de données existe
-    if not os.path.exists(DB_PATH):
-        logger.warning(f"⚠️  Base de données non trouvée: {DB_PATH}")
-        logger.info("💡 La base sera créée automatiquement au premier ajout de prospect")
+    # Vérifier que la base de données existe (elle sera créée automatiquement si nécessaire)
+    db_exists = os.path.exists(DB_PATH)
+    if db_exists:
+        logger.info(f"✅ Base de données trouvée: {DB_PATH}")
+        # Vérifier la taille pour confirmer qu'elle n'est pas vide
+        db_size = os.path.getsize(DB_PATH)
+        logger.info(f"📊 Taille de la base de données: {db_size} bytes")
+    else:
+        logger.info(f"💡 Base de données sera créée automatiquement: {DB_PATH}")
+        # S'assurer que le répertoire existe
+        Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     
     logger.info(f"🌐 Interface web démarrée sur http://{host}:{port}")
     logger.info(f"📊 Accédez au dashboard: http://localhost:{port}")
-    logger.info(f"📁 Base de données: {DB_PATH}")
+    logger.info(f"📁 Base de données (isolée par serveur): {DB_PATH}")
     
     try:
         app.run(host=host, port=port, debug=False, threaded=True)
