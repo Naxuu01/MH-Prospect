@@ -17,8 +17,15 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Importer la fonction utilitaire pour déterminer le chemin de la base de données
+from database import get_database_path
+
 # Déterminer le chemin de la base de données (compatible Pterodactyl)
-# Pterodactyl utilise /home/container comme répertoire de travail
+# Pterodactyl utilise /home/container comme répertoire de travail par serveur
+# Chaque serveur Pterodactyl a son propre répertoire isolé = isolation des données
+DB_PATH = get_database_path()
+
+# Déterminer le répertoire de base pour les exports
 if os.path.exists("/home/container"):
     BASE_DIR = Path("/home/container")
 elif os.path.exists("/mnt/server"):
@@ -26,11 +33,10 @@ elif os.path.exists("/mnt/server"):
 else:
     BASE_DIR = Path(__file__).parent
 
-DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "prospects.db"))
 EXPORT_DIR = BASE_DIR / "exports"
 EXPORT_DIR.mkdir(exist_ok=True)
 
-logger.info(f"📁 Base de données: {DB_PATH}")
+logger.info(f"📁 Base de données (isolée par serveur): {DB_PATH}")
 logger.info(f"📁 Dossier exports: {EXPORT_DIR}")
 
 
@@ -326,6 +332,9 @@ HTML_TEMPLATE = """
     <div class="header">
         <h1>📊 Dashboard MH Prospect</h1>
         <p>Gestion et visualisation des prospects - Mise à jour automatique</p>
+        <p style="font-size: 0.85rem; margin-top: 0.5rem; opacity: 0.8;">
+            🔒 Dashboard isolé - Base de données unique à ce serveur
+        </p>
     </div>
     
     <!-- Toast pour notifications -->
@@ -338,6 +347,11 @@ HTML_TEMPLATE = """
     </div>
     
     <div class="container">
+        <div style="background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 1rem; margin-bottom: 1.5rem; border-radius: 5px; font-size: 0.9rem; color: #1e40af;">
+            <strong>🔒 Isolation des données :</strong> Ce dashboard affiche uniquement les prospects de ce serveur. 
+            Chaque instance de serveur Pterodactyl dispose de sa propre base de données isolée.
+        </div>
+        
         <div class="stats-grid" id="stats">
             <div class="stat-card">
                 <h3>Total Prospects</h3>
