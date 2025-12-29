@@ -42,9 +42,8 @@ class AgentProspection:
         Args:
             config_path: Chemin vers le fichier de configuration
         """
-        # Charger la configuration
-        with open(config_path, 'r', encoding='utf-8') as f:
-            self.config = yaml.safe_load(f)
+        # Charger la configuration depuis YAML et variables d'environnement
+        self.config = self._load_config(config_path)
         
         # Initialiser les clients API
         serper_key = os.getenv("SERPER_API_KEY")
@@ -123,6 +122,115 @@ class AgentProspection:
         ])
         if not isinstance(self.cibles, list):
             self.cibles = [self.cibles]
+        
+        # Logger les valeurs utilisées pour debug
+        logger.info("📋 Configuration chargée:")
+        logger.info(f"   Secteur: {self.secteur_entreprise}")
+        logger.info(f"   Service: {self.service_propose}")
+        logger.info(f"   Zone: {self.ville}, {self.pays}")
+        logger.info(f"   Cibles: {', '.join(self.cibles)}")
+        logger.info(f"   Nombre résultats: {self.nombre_resultats}")
+    
+    def _load_config(self, config_path: str) -> Dict[str, Any]:
+        """
+        Charge la configuration depuis config.yaml et surcharge avec les variables d'environnement Pterodactyl.
+        
+        Les variables d'environnement préfixées par SERVER_ surchargent les valeurs du YAML.
+        Cela permet de modifier la config depuis le panel Pterodactyl sans modifier le fichier.
+        
+        Args:
+            config_path: Chemin vers le fichier config.yaml
+            
+        Returns:
+            Dictionnaire de configuration avec valeurs par défaut + surcharges env
+        """
+        # Charger la configuration YAML par défaut
+        config = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f) or {}
+            except Exception as e:
+                logger.warning(f"⚠️  Impossible de charger {config_path}: {e}")
+                config = {}
+        
+        # Surcharger avec les variables d'environnement Pterodactyl (si définies)
+        # Les variables d'environnement ont la priorité
+        
+        if os.getenv("SERVER_SECTEUR_ENTREPRISE"):
+            config["secteur_entreprise"] = os.getenv("SERVER_SECTEUR_ENTREPRISE")
+            logger.debug("✅ Secteur surchargé via SERVER_SECTEUR_ENTREPRISE")
+        
+        if os.getenv("SERVER_SERVICE_PROPOSE"):
+            config["service_propose"] = os.getenv("SERVER_SERVICE_PROPOSE")
+            logger.debug("✅ Service surchargé via SERVER_SERVICE_PROPOSE")
+        
+        if os.getenv("SERVER_VILLE"):
+            config["ville"] = os.getenv("SERVER_VILLE")
+            logger.debug("✅ Ville surchargée via SERVER_VILLE")
+        
+        if os.getenv("SERVER_PAYS"):
+            config["pays"] = os.getenv("SERVER_PAYS")
+            logger.debug("✅ Pays surchargé via SERVER_PAYS")
+        
+        if os.getenv("SERVER_PROPOSITION_VALEUR"):
+            config["proposition_valeur"] = os.getenv("SERVER_PROPOSITION_VALEUR")
+            logger.debug("✅ Proposition valeur surchargée via SERVER_PROPOSITION_VALEUR")
+        
+        if os.getenv("SERVER_NOMBRE_RESULTATS"):
+            try:
+                config["nombre_resultats_serper"] = int(os.getenv("SERVER_NOMBRE_RESULTATS"))
+                logger.debug("✅ Nombre résultats surchargé via SERVER_NOMBRE_RESULTATS")
+            except (ValueError, TypeError):
+                logger.warning(f"⚠️  SERVER_NOMBRE_RESULTATS invalide: {os.getenv('SERVER_NOMBRE_RESULTATS')}")
+        
+        # Message base : gérer les retours à la ligne (\n -> vrais retours à la ligne)
+        if os.getenv("SERVER_MESSAGE_BASE"):
+            message_base = os.getenv("SERVER_MESSAGE_BASE").replace("\\n", "\n")
+            config["message_base"] = message_base
+            logger.debug("✅ Message base surchargé via SERVER_MESSAGE_BASE")
+        
+        # Cibles : parser le YAML depuis la variable d'environnement
+        if os.getenv("SERVER_CIBLES"):
+            cibles_str = os.getenv("SERVER_CIBLES").replace("\\n", "\n")
+            try:
+                # Essayer de parser directement comme YAML (pour les listes complètes)
+                cibles_parsed = yaml.safe_load(cibles_str)
+                if isinstance(cibles_parsed, list) and len(cibles_parsed) > 0:
+                    config["cibles"] = cibles_parsed
+                    logger.info(f"✅ Cibles surchargées via SERVER_CIBLES: {len(cibles_parsed)} items ({', '.join(cibles_parsed[:3])}{'...' if len(cibles_parsed) > 3 else ''})")
+                else:
+                    raise ValueError("Format YAML invalide ou liste vide")
+            except Exception as e:
+                logger.warning(f"⚠️  Erreur lors du parsing YAML de SERVER_CIBLES: {e}")
+                # Fallback: essayer de parser comme une liste YAML formatée
+                cibles_str = os.getenv("SERVER_CIBLES", "").replace("\\n", "\n")
+                # Extraire les éléments entre guillemets (double ou simple)
+                import re
+                # Chercher tous les éléments entre guillemets
+                cibles_items = re.findall(r'"([^"]+)"|\'([^\']+)\'', cibles_str)
+                if cibles_items:
+                    # Prendre le premier groupe non vide de chaque match
+                    config["cibles"] = [item[0] if item[0] else item[1] for item in cibles_items]
+                    logger.info(f"✅ Cibles parsées (extraction guillemets): {config['cibles']}")
+                else:
+                    # Fallback: chercher les éléments après les tirets YAML
+                    cibles_lines = [line.strip() for line in cibles_str.split("\n") if line.strip()]
+                    cibles_parsed = []
+                    for line in cibles_lines:
+                        # Enlever le tiret et les espaces, puis les guillemets
+                        item = line.lstrip("- ").strip().strip('"').strip("'")
+                        if item:
+                            cibles_parsed.append(item)
+                    if cibles_parsed:
+                        config["cibles"] = cibles_parsed
+                        logger.info(f"✅ Cibles parsées (format YAML): {config['cibles']}")
+                    else:
+                        # Dernier fallback: séparation par virgule
+                        config["cibles"] = [c.strip().strip('"').strip("'").strip("-").strip() for c in cibles_str.replace("\n", ",").split(",") if c.strip()]
+                        logger.info(f"✅ Cibles parsées (virgules): {config['cibles']}")
+        
+        return config
     
     def charger_prospects_initiaux(self):
         """Charge une liste initiale de prospects qualifiés (PME privées locales)."""
